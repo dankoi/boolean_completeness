@@ -1,0 +1,81 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+<link href="coqdoc.css" rel="stylesheet" type="text/css"/>
+<title>pairing.extEqualNat</title>
+</head>
+
+<body>
+
+<div id="page">
+
+<div id="header">
+</div>
+
+<div id="main">
+
+<h1 class="libtitle">Library pairing.extEqualNat</h1>
+
+<div class="code">
+</div>
+
+<div class="doc">
+This code is part of Russell O'Connor's formalisation of Goedel's
+   Incompleteness Theorem in Coq, released into the Public Domain.
+
+<br/> <br/>
+   http://r6.ca/Goedel/goedel1.html
+
+</div>
+<div class="code">
+<span class="id" type="keyword">Require</span> <span class="id" type="keyword">Import</span> <span class="id" type="var">Arith</span>.<br/>
+
+<br/>
+<span class="id" type="keyword">Fixpoint</span> <span class="id" type="var">naryFunc</span> (<span class="id" type="var">n</span> : <span class="id" type="var">nat</span>) : <span class="id" type="keyword">Set</span> :=<br/>
+&nbsp;&nbsp;<span class="id" type="keyword">match</span> <span class="id" type="var">n</span> <span class="id" type="keyword">with</span><br/>
+&nbsp;&nbsp;| <span class="id" type="var">O</span> ⇒ <span class="id" type="var">nat</span><br/>
+&nbsp;&nbsp;| <span class="id" type="var">S</span> <span class="id" type="var">n</span> ⇒ <span class="id" type="var">nat</span> → <span class="id" type="var">naryFunc</span> <span class="id" type="var">n</span><br/>
+&nbsp;&nbsp;<span class="id" type="keyword">end</span>.<br/>
+
+<br/>
+<span class="id" type="keyword">Fixpoint</span> <span class="id" type="var">naryRel</span> (<span class="id" type="var">n</span> : <span class="id" type="var">nat</span>) : <span class="id" type="keyword">Set</span> :=<br/>
+&nbsp;&nbsp;<span class="id" type="keyword">match</span> <span class="id" type="var">n</span> <span class="id" type="keyword">with</span><br/>
+&nbsp;&nbsp;| <span class="id" type="var">O</span> ⇒ <span class="id" type="var">bool</span><br/>
+&nbsp;&nbsp;| <span class="id" type="var">S</span> <span class="id" type="var">n</span> ⇒ <span class="id" type="var">nat</span> → <span class="id" type="var">naryRel</span> <span class="id" type="var">n</span><br/>
+&nbsp;&nbsp;<span class="id" type="keyword">end</span>.<br/>
+
+<br/>
+<span class="id" type="keyword">Definition</span> <span class="id" type="var">extEqual</span> (<span class="id" type="var">n</span> : <span class="id" type="var">nat</span>) (<span class="id" type="var">a</span> <span class="id" type="var">b</span> : <span class="id" type="var">naryFunc</span> <span class="id" type="var">n</span>) : <span class="id" type="keyword">Prop</span>.<br/>
+<span class="id" type="keyword">Defined</span>.<br/>
+
+<br/>
+<span class="id" type="keyword">Lemma</span> <span class="id" type="var">extEqualRefl</span> : ∀ (<span class="id" type="var">n</span> : <span class="id" type="var">nat</span>) (<span class="id" type="var">a</span> : <span class="id" type="var">naryFunc</span> <span class="id" type="var">n</span>), <span class="id" type="var">extEqual</span> <span class="id" type="var">n</span> <span class="id" type="var">a</span> <span class="id" type="var">a</span>.<br/>
+
+<br/>
+<span class="id" type="keyword">Lemma</span> <span class="id" type="var">extEqualSym</span> :<br/>
+&nbsp;∀ (<span class="id" type="var">n</span> : <span class="id" type="var">nat</span>) (<span class="id" type="var">a</span> <span class="id" type="var">b</span> : <span class="id" type="var">naryFunc</span> <span class="id" type="var">n</span>), <span class="id" type="var">extEqual</span> <span class="id" type="var">n</span> <span class="id" type="var">a</span> <span class="id" type="var">b</span> → <span class="id" type="var">extEqual</span> <span class="id" type="var">n</span> <span class="id" type="var">b</span> <span class="id" type="var">a</span>.<br/>
+
+<br/>
+<span class="id" type="keyword">Lemma</span> <span class="id" type="var">extEqualTrans</span> :<br/>
+&nbsp;∀ (<span class="id" type="var">n</span> : <span class="id" type="var">nat</span>) (<span class="id" type="var">a</span> <span class="id" type="var">b</span> <span class="id" type="var">c</span> : <span class="id" type="var">naryFunc</span> <span class="id" type="var">n</span>),<br/>
+&nbsp;<span class="id" type="var">extEqual</span> <span class="id" type="var">n</span> <span class="id" type="var">a</span> <span class="id" type="var">b</span> → <span class="id" type="var">extEqual</span> <span class="id" type="var">n</span> <span class="id" type="var">b</span> <span class="id" type="var">c</span> → <span class="id" type="var">extEqual</span> <span class="id" type="var">n</span> <span class="id" type="var">a</span> <span class="id" type="var">c</span>.<br/>
+
+<br/>
+<span class="id" type="keyword">Fixpoint</span> <span class="id" type="var">charFunction</span> (<span class="id" type="var">n</span> : <span class="id" type="var">nat</span>) : <span class="id" type="var">naryRel</span> <span class="id" type="var">n</span> → <span class="id" type="var">naryFunc</span> <span class="id" type="var">n</span> :=<br/>
+&nbsp;&nbsp;<span class="id" type="keyword">match</span> <span class="id" type="var">n</span> <span class="id" type="keyword">return</span> (<span class="id" type="var">naryRel</span> <span class="id" type="var">n</span> → <span class="id" type="var">naryFunc</span> <span class="id" type="var">n</span>) <span class="id" type="keyword">with</span><br/>
+&nbsp;&nbsp;| <span class="id" type="var">O</span> ⇒ <span class="id" type="keyword">fun</span> <span class="id" type="var">R</span> : <span class="id" type="var">bool</span> ⇒ <span class="id" type="keyword">match</span> <span class="id" type="var">R</span> <span class="id" type="keyword">with</span><br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;| <span class="id" type="var">true</span> ⇒ 1<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;| <span class="id" type="var">false</span> ⇒ 0<br/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="id" type="keyword">end</span><br/>
+&nbsp;&nbsp;| <span class="id" type="var">S</span> <span class="id" type="var">m</span> ⇒ <span class="id" type="keyword">fun</span> (<span class="id" type="var">R</span> : <span class="id" type="var">naryRel</span> (<span class="id" type="var">S</span> <span class="id" type="var">m</span>)) (<span class="id" type="var">a</span> : <span class="id" type="var">nat</span>) ⇒ <span class="id" type="var">charFunction</span> <span class="id" type="var">m</span> (<span class="id" type="var">R</span> <span class="id" type="var">a</span>)<br/>
+&nbsp;&nbsp;<span class="id" type="keyword">end</span>.<br/>
+</div>
+<hr/>This page has been generated by <a href="http://coq.inria.fr/">coqdoc</a>
+</div>
+
+</div>
+
+</body>
+</html>
