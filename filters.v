@@ -3,13 +3,15 @@
    F. (Ultrafilter Theorem)
 
    This file is used by the completeness theorem from classcomp.v, but
-   it can be used in other contexts, it is a standalone module.
- *)
-Require Import Ring.
-Require Import List.
-Require Import Compare_dec.
-Require Import Setoid.
-Require Import Morphisms.
+   it can be used in other contexts, it is a standalone module.  It
+   also includes an instantiation of the ring tactic with the
+   semi-ring boolean algebra. *)
+From Stdlib Require Import Ring.
+From Stdlib Require Import List.
+From Stdlib Require Import Compare_dec.
+From Stdlib Require Import Setoid.
+From Stdlib Require Import Morphisms.
+From Stdlib Require Import PeanoNat.
 
 Set Implicit Arguments.
 
@@ -23,8 +25,8 @@ Module Type CBA.
   Axiom eq_B_refl  : reflexive B eq_B.
   Axiom eq_B_symm  : symmetric B eq_B.
   Axiom eq_B_trans : transitive B eq_B.
-  Axiom eq_B_meet_morph : Morphism (eq_B ==> eq_B ==> eq_B) meet.
-  Axiom eq_B_join_morph : Morphism (eq_B ==> eq_B ==> eq_B) join.
+  Axiom eq_B_meet_morph : Proper (eq_B ==> eq_B ==> eq_B) meet.
+  Axiom eq_B_join_morph : Proper (eq_B ==> eq_B ==> eq_B) join.
 
   Axiom enum : B -> nat.
   Axiom countable : forall x y, enum x = enum y -> x = y.
@@ -48,7 +50,9 @@ Module Type CBA.
   Axiom meet_compl : forall x, meet x (compl x) == bott.
   Axiom join_compl : forall x, join x (compl x) == top.
 
-  (** We also need that identity [id_B] is decidable in 1 place. Note that this is not that [id_B] is definitional equality, it has nothing to do with the equality of the setoid. *)
+  (** We also need that identity [id_B] is decidable in 1 place. Note
+      that this [id_B] is definitional equality, it has nothing to do
+      with the equality of the setoid. *)
   Axiom id_B_dec : forall x y : B, {x = y}+{x <> y}.
   Axiom id_B_dec_right : forall (x y:B), x<>y ->
     exists H:x<>y, id_B_dec x y = right (x=y) H.
@@ -74,7 +78,8 @@ Module filter_completion (cba : CBA).
     exact eq_B_join_morph.
   Qed.
 
-  (** A boolean algebra is also a semi-ring, useful because Coq can automatically solve equations for in such cases. *)
+  (** A boolean algebra is also a semi-ring, useful because Coq can
+      automatically solve equations in such cases. *)
   Theorem CBA_semiring : semi_ring_theory bott top join meet eq_B.
   Proof.
     constructor.
@@ -108,9 +113,8 @@ Module filter_completion (cba : CBA).
     apply meet_absorb.
   Qed.
 
-  Delimit Scope B_scope with B.
+  Declare Scope B_scope.
   Bind Scope B_scope with B.
-  Arguments Scope B [nat_scope].
   Open Scope B_scope.
 
   Notation "x && y" := (meet x y) (at level 40, left associativity) : B_scope.
@@ -143,7 +147,10 @@ Module filter_completion (cba : CBA).
   Definition element_complete (F:B -> Prop)(x:B) := 
     equiconsistent F (up (union_singl F x)) -> F x.
 
-  (** This notion of completeness of a filter is the key to having a constructive proof. This notion is constructivelly weaker than, but classically equivalent to, the more usual notion: either x in F, or ~x in F. *)
+  (** This notion of completeness of a filter is the key to having a
+      constructive proof. This notion is constructivelly weaker than,
+      but classically equivalent to, the more usual notion: either x
+      in F, or ~x in F. *)
   Definition complete (F:B -> Prop) := forall x:B, element_complete F x.
 
   Lemma leq_refl : forall x:B, x <= x.
@@ -201,7 +208,9 @@ Module filter_completion (cba : CBA).
     ring [H H0].
   Qed.
 
-  (** The next few lemmas with names "fold_left*" and "lemma*" are used to handle the representation of a finite number of conjunctions by a list. *)
+  (** The next few lemmas with names "fold_left*" and "lemma*" are
+      used to handle the representation of a finite number of
+      conjunctions by a list. *)
 
   Lemma fold_left_meet_morphism : forall x y bs, x==y -> 
     fold_left meet bs x == fold_left meet bs y.
@@ -292,7 +301,7 @@ Module filter_completion (cba : CBA).
     destruct H0 as [m [ys [H4 [H5 H6]]]].
     exists (n+m).
     exists (xs++ys).
-    rewrite app_length.
+    rewrite length_app.
     rewrite fold_left_app.
     intuition.
     apply fold_left_impl with True; auto.
@@ -492,7 +501,11 @@ Module filter_completion (cba : CBA).
       equiconsistent X (up (union_singl X x_n))
     ).
   Proof.
-    fix 2.
+    generalize dependent H.
+    generalize dependent n.
+    generalize dependent ys.
+    generalize dependent X.
+    fix lemma5 2.
     induction ys.
     intros.
     simpl in *.
@@ -600,7 +613,9 @@ Module filter_completion (cba : CBA).
 
   Section completion.
 
-  (** This is the hearth of the argument, a fixpoint that, starting from a filter F, builds a complete filter extending F and equiconsistent to F. *)
+  (** This is the heart of the argument, a fixpoint that, starting
+      from a filter F, builds a complete filter extending F and
+      equiconsistent to F. *)
   Variable F:B -> Prop.
 
   Fixpoint F_ (n':nat) {struct n'} :=
@@ -701,7 +716,7 @@ Module filter_completion (cba : CBA).
     apply (@meet_closed (F_ m)); auto.
     apply lem222 with n;auto.
     intro.
-    assert (l' := Lt.lt_le_weak _ _ l).
+    assert (l' := Nat.lt_le_incl _ _ l).
     exists n.
     apply (@meet_closed (F_ n)); auto.
     apply lem222 with m;auto.
@@ -902,7 +917,7 @@ Module filter_completion (cba : CBA).
       (remove id_B_dec f ys) True
       .
     Proof.
-      fix 3.
+      fix lemma8 3.
       destruct ys.
       simpl.
       intuition.
@@ -918,10 +933,9 @@ Module filter_completion (cba : CBA).
       right.
       destruct (id_B_dec f b).
       (* ys is a subset of ys\{f} *)
-      Focus 2.
-      congruence.
+      2 : congruence.
       idtac.
-      Focus 2.
+      2 : {
       right.
       destruct (id_B_dec f b).
       assumption.
@@ -932,7 +946,7 @@ Module filter_completion (cba : CBA).
       assumption.
       destruct H0.
       assumption.
-      congruence.
+      congruence. }
       idtac.
       idtac.
       clear -H1.
@@ -958,4 +972,3 @@ Module filter_completion (cba : CBA).
   End additional_lemmas.
 
 End filter_completion.
-

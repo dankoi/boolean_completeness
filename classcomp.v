@@ -1,34 +1,27 @@
-(**
-   Krivine's constructive proof of completeness for classical
-   first-order logic, following the paper of Berardi and Valentini.
+(** A constructive proof of completeness for classical first-order
+   logic, globally following the paper of Berardi and Valentini,
+   itself unwinding Krivine's proof, itself unwinding the classical
+   proof.
 
-   Uses Russell O'Connor's implementation of the Cantor Pairing
-   function in Coq.
+   Danko Ilik, October 2008, revisited August 2025 *)
 
-   A part involving list sorting is not fully formalised.
-
-   Danko Ilik, October 2008
-*)
-
-Require Export List.
-Require Import Setoid.
-Require Import Bool.
-Require Import EqNat.
-Require Export Peano_dec.
-Require Import Compare_dec.
-Require Import Max.
-Require Import Le.
+From Stdlib Require Export List.
+From Stdlib Require Import Setoid.
+From Stdlib Require Import Bool.
+From Stdlib Require Import Arith.
+From Stdlib Require Import Cantor.
+From Stdlib Require Import Sorting.Mergesort.
+From Stdlib Require Import Orders.
 
 (** This imports the proof of the constructive Ultra-filter Theorem *)
 Require Import filters.
-(** This imports the unfinished list-sorting library*)
-Require Import lists.
 
 Set Implicit Arguments.
 
 (** printing ==> $\Rightarrow$ #⇒# *)
 
-(** To build the syntax of formulas, we start with decidable countable sets of constant, function, and predicate symbols. *)
+(** To build the syntax of formulas, we start with decidable countable
+    sets of constant, function, and predicate symbols. *)
 Module Type classical_completeness_signature.
   Parameters function predicate constant0 : Set.
   Parameter function_dec : forall f1 f2:function, {f1 = f2} + {f1 <> f2}.
@@ -48,9 +41,10 @@ End classical_completeness_signature.
 Module classical_completeness (ccsig:classical_completeness_signature).
   Export ccsig.
 
-(** 
-   A formula is then defined using the above. There is a special [added] constructor for constants, these are the Henkin constants. There are separate constructors for variables bound by quantifiers [bvar], and free variables [fvar].
-*)
+(** A formula is then defined using the above. There is a special
+   [added] constructor for constants, these are the Henkin
+   constants. There are separate constructors for variables bound by
+   quantifiers [bvar], and free variables [fvar].  *)
 Inductive formula : Set :=
 | bot : formula
 | imp : formula -> formula -> formula
@@ -65,8 +59,16 @@ with constant : Set :=
 | original : constant0 -> constant
 | added : formula -> constant.
 
-(** 'Opening up' quantifiers, i.e. replacing a de Bruijn variable bound
-   by a quantifier, by a formula. *)
+(** 'Opening up' quantifiers, i.e. replacing a quantifier-bound de
+    Bruijn variable, by a term. *)
+Fixpoint open_rec_term (k : nat) (u : term) (t : term) {struct t} : term :=
+  match t with
+    | bvar i    => if Nat.eqb k i then u else (bvar i)
+    | fvar x    => fvar x
+    | cnst c    => cnst c
+    | func f t1 => func f (open_rec_term k u t1)
+  end.
+
 Fixpoint
   open_rec (k : nat) (u : term) (t : formula) {struct t} : formula :=
   match t with
@@ -74,26 +76,20 @@ Fixpoint
     | imp t1 t2 => imp (open_rec k u t1) (open_rec k u t2)
     | all t1    => all (open_rec (S k) u t1)
     | atom p t1 => atom p (open_rec_term k u t1)
-  end
-with
-  open_rec_term (k : nat) (u : term) (t : term) {struct t} : term :=
-  match t with
-    | bvar i    => if beq_nat k i then u else (bvar i)
-    | fvar x    => fvar x
-    | cnst c    => cnst c
-    | func f t1 => func f (open_rec_term k u t1)
   end.
 
-(** Substituting the first variable in the term u, by the term t. *)
+(** Substituting the first variable in the term u, the one that would
+    be first captured by a surrounding quantifier, by the term t. *)
 Definition open t u := open_rec 0 u t.
 Notation "t ^^ u" := (open t u) (at level 67).
 Notation "t ^ x" := (open t (fvar x)).
 
-(** A formula is [locl] (locally closed) when all [bvar]-s are bound by quantifiers, but there might well be [fvar]-s around. *)
+(** A formula is [locl] (locally closed) when all [bvar]-s are bound
+    by quantifiers, although there might well be [fvar]-s around. *)
 Definition locl (f:formula) := forall n t, (open_rec n t f) = f.
 
 (** A term is locally-closed if it simply does not have bound
-   variables, but let us define it symmetrically to locl. *)
+    variables, but let us define it analogously to locl. *)
 Definition loclt (t:term) := forall n t', (open_rec_term n t' t) = t.
 
 Definition locll (Gamma:list formula) := forall B, In B Gamma -> locl B.
@@ -101,9 +97,8 @@ Definition locll (Gamma:list formula) := forall B, In B Gamma -> locl B.
 Definition notin (x:nat) (L:list nat) := not (In x L).
 Notation "x \notin L" := (notin x L) (at level 69).
 
-(**
-   Natural deduction system for classical predicate logic with cofinite quantification
-*)
+(** Natural deduction system for classical predicate logic with
+    cofinite quantification *)
 Inductive proof : list formula -> formula -> Prop :=
 | bot_elim  : forall Gamma, 
   proof Gamma bot -> forall A, proof Gamma A
@@ -125,11 +120,32 @@ Inductive proof : list formula -> formula -> Prop :=
 Notation "A ==> B" := (imp A B) (at level 55, right associativity).
 Notation "'neg' A" := (imp A bot) (at level 53, right associativity).
 
+
+Fixpoint added_cnsts (t:term) : bool :=
+  match t with
+  | (func f t') => added_cnsts t'
+  | (cnst c) => 
+      match c with
+      | (added k) => true
+      | (original k) => false
+      end
+  | (fvar x) => false
+  | (bvar x) => false
+  end.
+
+Fixpoint added_cnsts_f (f:formula) : bool :=
+  match f with
+  | (atom p t) => added_cnsts t
+  | (all g) => added_cnsts_f g
+  | (imp g h) => added_cnsts_f g || added_cnsts_f h
+  | bot => false
+  end.
+
 (** A general set of formulas *)
 Definition formula_set := formula -> Prop.
 
 (** Definition of a "minimal model", one without standard
-   interpretation of absurdity *)
+    interpretation of absurdity *)
 Record model (M:formula_set) : Prop := {
 
   model_dneg : forall A, M (neg neg A ==> A);
@@ -144,7 +160,7 @@ Record model (M:formula_set) : Prop := {
     M (all A) -> 
     forall t:term, M (A^^t);
   
-  model_all_faithful2 : forall A, locl (all A) ->
+  model_all_faithful2 : forall A, locl (all A) -> added_cnsts_f A = false -> 
     (forall t:term, loclt t -> M (A^^t)) ->  
     M (all A)
 }.
@@ -155,8 +171,8 @@ Definition model_bot_faithful (M:formula_set) := not (M bot).
 Definition classical_model (M:formula_set) : Prop :=
   model M /\ model_bot_faithful M.
 
-(** A set of formulas interprets a sequent Gamma|-A if the inclusion of Gamma 
-   implies the inclusion of A *)
+(** A set of formulas interprets a sequent Gamma|-A if the inclusion
+    of Gamma implies the membership of A *)
 Definition interprets (M:formula_set)(Gamma:list formula)(A:formula) :=
   (forall f, In f Gamma -> M f) -> M A.
 
@@ -224,7 +240,7 @@ Ltac contra := apply proof_imp_contrapos.
 
 Lemma formula_dec : forall x y:formula, {x = y}+{x <> y}.
 Proof.
-  fix 1.
+  fix formula_dec 1.
   decide equality.
   decide equality.
   decide equality.
@@ -237,7 +253,7 @@ Defined.
 
 Lemma constant_dec : forall f1 f2:constant, {f1 = f2} + {f1 <> f2}.
 Proof.
-  fix 1.
+  fix constant_dec 1.
   decide equality.
   apply constant0_dec.
   apply formula_dec.
@@ -246,8 +262,8 @@ Defined.
 Module Export CBAproof <: CBA.
 
 (** The Lindenbaum Boolean algebra which will be used in the model
-   existence lemma to build a maximal consistent extension of a set of
-   formulas. (the "Universal model") *)
+    existence lemma to build a maximal consistent extension of a set
+    of formulas. (the "Universal model") *)
 Section boolean_algebra.
 
   Let B := formula.
@@ -1016,35 +1032,33 @@ Section boolean_algebra.
 End boolean_algebra.
 
 (** To use the completion of filters from filters.v, we also need an
-enumeration of the elements of the Boolean algebra, which is achieved
-by borrowing code about the Cantor pairing function from Russell
-O'Connor's formalisation of the incompleteness theorem *)
+    enumeration of the elements of the Boolean algebra, which is
+    achieved by using the Cantor pairing function from the Coq
+    standard library (formerly we used the one from Russell O'Connor's
+    formalization of the incompleteness theorem) *)
 Section Enumeration.
-  Add LoadPath "pairing".
-  Require Import cPair.
-  
-  Definition enump := fun p => cPair 11 (enum_predicate p).
-  Definition enumc0 := fun c => cPair 12 (enum_constant0 c).
-  Definition enumfunc := fun f => cPair 13 (enum_function f).
+  Definition enump := fun p => to_nat (11, enum_predicate p).
+  Definition enumc0 := fun c => to_nat (12, enum_constant0 c).
+  Definition enumfunc := fun f => to_nat (13, enum_function f).
   
   Fixpoint enumf (f:formula) : nat :=
     match f with
-      | (atom p t) => cPair 1 (cPair (enump p) (enumt t))
-      | (all g) => cPair 2 (enumf g)
-      | (imp g h) => cPair 3 (cPair (enumf g) (enumf h))
-      | bot => 4
+      | (atom p t) => to_nat (1, to_nat (enump p, enumt t))
+      | (all g) => to_nat (2, enumf g)
+      | (imp g h) => to_nat (3, to_nat (enumf g, enumf h))
+      | bot => to_nat (4, 0)
     end
   with enumt (t:term) : nat :=
     match t with
-      | (func phi t') => cPair 5 (cPair (enumfunc phi) (enumt t'))
-      | (cnst c) => cPair 6 (enumc c)
-      | (fvar x) => cPair 7 x
-      | (bvar x) => cPair 8 x
+      | (func phi t') => to_nat (5, to_nat (enumfunc phi, enumt t'))
+      | (cnst c) => to_nat (6, enumc c)
+      | (fvar x) => to_nat (7, x)
+      | (bvar x) => to_nat (8, x)
     end
   with enumc (c:constant) : nat :=
     match c with
-      | (added x) => cPair 9 (enumf x)
-      | (original x) => cPair 10 (enumc0 x)
+      | (added x) => to_nat (9, enumf x)
+      | (original x) => to_nat (10, enumc0 x)
     end.
   
   (* Eval compute in (enumf (imp bot bot)). *)
@@ -1060,185 +1074,161 @@ Section Enumeration.
     /\ (forall t s, enumt t = enumt s -> t = s)
     /\ (forall c k, enumc c = enumc k -> c = k).
   Proof.
+    Opaque to_nat.
     apply ftc_ind.
 
     intros g Hg.
-    destruct g.
-    reflexivity.
-      simpl in Hg.
-      unfold cPair in Hg.
-      simpl in Hg.
-      discriminate.
-      simpl in Hg.
-      unfold cPair in Hg.
-      simpl in Hg.
-      rewrite <- Plus.plus_Snm_nSm in Hg.
-      simpl in Hg.
-      discriminate.
-      simpl in Hg.
-      unfold cPair in Hg.
-      simpl in Hg.
-      discriminate.
+    destruct g;
+      (try reflexivity; 
+        apply to_nat_inj in Hg;
+        fold enumf in Hg;
+        discriminate).
 
     intros f1 Hf1 f2 Hf2 g Hg.
-    destruct g.
-      simpl in Hg.
-      unfold cPair in Hg.
-      simpl in Hg.
-      discriminate.
-    simpl in Hg.
-    apply cPairInj2 in Hg.
-    assert (Hg' := Hg).
-    apply cPairInj1 in Hg.
-    apply cPairInj2 in Hg'.
-    rewrite Hf1 with g1; [ idtac | assumption].
-    rewrite Hf2 with g2; [ idtac | assumption].
-    reflexivity.
-      simpl in Hg.
-      apply cPairInj1 in Hg.
-      congruence.
-      simpl in Hg.
-      apply cPairInj1 in Hg.
-      congruence.
+    destruct g;
+      (try reflexivity; 
+        try (apply to_nat_inj in Hg;
+             fold enumf in Hg;
+             discriminate)).
+    unfold enumf in Hg.
+    apply to_nat_inj in Hg.
+    fold enumf in Hg.
+    injection Hg.
+    intros Hg'.
+    apply to_nat_inj in Hg'.
+    injection Hg'.
+    intros.
+    f_equal.
+    apply Hf1; assumption.
+    apply Hf2; assumption.
 
-    intros f1 Hf1 g Hg.
-    destruct g.
-      simpl in Hg.
-      unfold cPair in Hg.
-      simpl in Hg.
-      rewrite <- Plus.plus_Snm_nSm in Hg.
-      simpl in Hg.
-      discriminate.
-      simpl in Hg.
-      apply cPairInj1 in Hg.
-      congruence.
-    simpl in Hg.
-    apply cPairInj2 in Hg.
-    rewrite Hf1 with g; [ idtac | assumption].
-    reflexivity.
-      simpl in Hg.
-      apply cPairInj1 in Hg.
-      congruence.
+    intros f Hf g Hg.
+    destruct g;
+      (try reflexivity; 
+        try (apply to_nat_inj in Hg;
+             fold enumf in Hg;
+             discriminate)).
+    unfold enumf in Hg.
+    apply to_nat_inj in Hg.
+    fold enumf in Hg.
+    injection Hg.
+    intros Hg'.
+    f_equal.
+    apply Hf; assumption.
 
     intros p t Ht g Hg.
-    destruct g.
-      simpl in Hg.
-      unfold cPair in Hg.
-      simpl in Hg.
-      discriminate.
-      simpl in Hg.
-      apply cPairInj1 in Hg.
-      congruence.
-      simpl in Hg.
-      apply cPairInj1 in Hg.
-      congruence.
-    simpl in Hg.
-    apply cPairInj2 in Hg.
-    assert (Hg' := Hg).
-    apply cPairInj1 in Hg.
-    apply cPairInj2 in Hg'.
-    unfold enump in Hg.
-    apply cPairInj2 in Hg.
-    apply enum_predicate_inj in Hg.
-    apply Ht in Hg'.
-    rewrite Hg.
-    rewrite Hg'.
+    destruct g;
+      (try reflexivity; 
+        try (apply to_nat_inj in Hg;
+             fold enumf in Hg;
+             discriminate)).
+    apply to_nat_inj in Hg.
+    injection Hg.
+    clear Hg.
+    intros Hg'.
+    fold enumt in Hg'.
+    apply to_nat_inj in Hg'.
+    injection Hg'.
+    intros H1 H2.
+    f_equal.
+    2 : { apply Ht; assumption. }
+    unfold enump in H2.
+    apply to_nat_inj in H2.
+    injection H2.
+    intro H2'.
+    apply enum_predicate_inj.
+    assumption.
+
+    intros n s Hs.
+    destruct s;
+      (try reflexivity; 
+        try (apply to_nat_inj in Hs;
+             fold enumt in Hs;
+             discriminate)).
+    simpl in Hs.
+    apply to_nat_inj in Hs.
+    injection Hs.
+    intro H.
+    rewrite H.
     reflexivity.
 
     intros n s Hs.
-    destruct s.
+    destruct s;
+      (try reflexivity; 
+        try (apply to_nat_inj in Hs;
+             fold enumt in Hs;
+             discriminate)).
     simpl in Hs.
-    apply cPairInj2 in Hs.
-    rewrite Hs.
+    apply to_nat_inj in Hs.
+    injection Hs.
+    intro H.
+    rewrite H.
     reflexivity.
-      simpl in Hs.
-      apply cPairInj1 in Hs.
-      congruence.
-      simpl in Hs.
-      apply cPairInj1 in Hs.
-      congruence.
-      simpl in Hs.
-      apply cPairInj1 in Hs.
-      congruence.
-
-    intros n s Hs.
-    destruct s.
-      simpl in Hs.
-      apply cPairInj1 in Hs.
-      congruence.
-    simpl in Hs.
-    apply cPairInj2 in Hs.
-    rewrite Hs.
-    reflexivity.
-      simpl in Hs.
-      apply cPairInj1 in Hs.
-      congruence.
-      simpl in Hs.
-      apply cPairInj1 in Hs.
-      congruence.
 
     intros c Hc s Hs.
-    destruct s.
-      simpl in Hs.
-      apply cPairInj1 in Hs.
-      congruence.
-      simpl in Hs.
-      apply cPairInj1 in Hs.
-      congruence.
+    destruct s;
+      (try reflexivity; 
+        try (apply to_nat_inj in Hs;
+             fold enumt in Hs;
+             discriminate)).
     simpl in Hs.
-    apply cPairInj2 in Hs.
-    rewrite Hc with c0.
-    reflexivity.
-    assumption.
-      simpl in Hs.
-      apply cPairInj1 in Hs.
-      congruence.
+    apply to_nat_inj in Hs.
+    injection Hs.
+    intro H.
+    f_equal.
+    apply Hc; assumption.
 
     intros f t Ht s Hs.
-    destruct s.
-      simpl in Hs.
-      apply cPairInj1 in Hs.
-      congruence.
-      simpl in Hs.
-      apply cPairInj1 in Hs.
-      congruence.
-      simpl in Hs.
-      apply cPairInj1 in Hs.
-      congruence.
+    destruct s;
+      (try reflexivity; 
+        try (apply to_nat_inj in Hs;
+             fold enumt in Hs;
+             discriminate)).
     simpl in Hs.
-    apply cPairInj2 in Hs.
-    assert (Hs' := Hs).
-    apply cPairInj1 in Hs.
-    apply cPairInj2 in Hs'.
-    rewrite Ht with s; [ | assumption].
-    unfold enumfunc in Hs.
-    apply cPairInj2 in Hs.
-    apply enum_function_inj in Hs.
-    rewrite Hs.
-    reflexivity.
-
+    apply to_nat_inj in Hs.
+    injection Hs.
+    intro Hs'.
+    apply to_nat_inj in Hs'.
+    injection Hs'.
+    intros H1 H2.
+    f_equal.
+    unfold enumfunc in H2.
+    apply to_nat_inj in H2.
+    injection H2.
+    intro H2'.
+    apply enum_function_inj; assumption.    
+    apply Ht; assumption.
+    
     intros c k Hk.
-    destruct k.
-    simpl in Hk.
-    apply cPairInj2 in Hk.
-    unfold enumc0 in Hk.
-    apply cPairInj2 in Hk.
-    apply enum_constant0_inj in Hk.
-    rewrite Hk.
-    reflexivity.
-      simpl in Hk.
-      apply cPairInj1 in Hk.
-      congruence.
+    destruct k;
+      (try reflexivity; 
+        try (apply to_nat_inj in Hk;
+             fold enumt in Hk;
+             discriminate)).
+    f_equal.
+    unfold enumc in Hk.
+    apply to_nat_inj in Hk.
+    injection Hk.    
+    intro Hk'.
+    unfold enumc0 in Hk'.
+    apply to_nat_inj in Hk'.
+    injection Hk'.    
+    intro Hk''.
+    apply enum_constant0_inj; assumption.
 
     intros f Hf k Hk.
-    destruct k.
-      simpl in Hk.
-      apply cPairInj1 in Hk.
-      congruence.
-    simpl in Hk.
-    apply cPairInj2 in Hk.
-    rewrite Hf with f0; [|assumption].
-    reflexivity.
+    destruct k;
+      (try reflexivity; 
+        try (apply to_nat_inj in Hk;
+             fold enumt in Hk;
+             discriminate)).
+    f_equal.
+    unfold enumc in Hk.
+    fold enumf in Hk.
+    apply to_nat_inj in Hk.
+    injection Hk.    
+    intro Hk'.
+    apply Hf; assumption.
   Qed.
 
   Definition enum := enumf.
@@ -1248,8 +1238,8 @@ Section Enumeration.
 
 End Enumeration.
 
-Definition eq_B_join_morph := join_morphism_Morphism.
-Definition eq_B_meet_morph := meet_morphism_Morphism.
+Definition eq_B_join_morph := join_morphism_Proper.
+Definition eq_B_meet_morph := meet_morphism_Proper.
 Definition bott := bot.
 Definition B := formula.
 
@@ -1377,31 +1367,30 @@ Section locl_lemmas.
 End locl_lemmas.
 
 (** This section defines a fixpoint [c_appears] which determines if a
-   given constant appears in the formula and then goes on to prove
-   that [c_appears f (added (all f)) = false], i.e. that a formula
-   cannot contain an added (Henkin) constant indexed by itself. This
-   is obvious, but the proof has to go on the induction of the depth
-   of the formula.
+    given constant appears in the formula and then goes on to prove
+    that [c_appears f (added (all f)) = false], i.e. that a formula
+    cannot contain an added (Henkin) constant indexed by itself. This
+    is obvious, but the formal proof proceeds by induction on the
+    depth of the formula.
 
-   Another fixpoint [added_cnsts] is also defined, to check if a
-   formula contains _any_ added constants and is connected to
-   [c_appears].
-*)
+    Another fixpoint [added_cnsts] is also defined, to check if a
+    formula contains _any_ added constants and is connected to
+    [c_appears].  *)
 Section constants_in_formulas.
+  Fixpoint c_appears_term (t:term)(c:constant) {struct t} : bool :=
+    match t with
+      | bvar i    => false
+      | fvar x    => false
+      | cnst k    => if (constant_dec k c) then true else false
+      | func f t1 => c_appears_term t1 c
+    end.
+
   Fixpoint c_appears (t:formula)(c:constant) {struct t} : bool :=
     match t with
       | bot       => false
       | imp t1 t2 => orb (c_appears t1 c) (c_appears t2 c)
       | all t1    => c_appears t1 c
       | atom p t1 => c_appears_term t1 c
-    end
-  with
-    c_appears_term (t:term)(c:constant) {struct t} : bool :=
-    match t with
-      | bvar i    => false
-      | fvar x    => false
-      | cnst k    => if (constant_dec k c) then true else false
-      | func f t1 => c_appears_term t1 c
     end.
   
   (** c_appears applied to a list *)
@@ -1439,25 +1428,25 @@ Section constants_in_formulas.
     reflexivity.
     simpl.
     simpl in H.
-    rewrite max_SS in H.
+    rewrite Nat.succ_max_distr in H.
     assert (depth f1 <= depth g).
-    apply le_trans with (S (depth f1)).
+    apply Nat.le_trans with (S (depth f1)).
     auto.
-    eapply le_trans.
-    apply le_max_l.
+    eapply Nat.le_trans.
+    apply Nat.le_max_l.
     apply H.
     assert (depth f2 <= depth g).
-    apply le_trans with (S (depth f2)).
+    apply Nat.le_trans with (S (depth f2)).
     auto.
-    eapply le_trans.
-    apply le_max_r.
+    eapply Nat.le_trans.
+    apply Nat.le_max_r.
     apply H.
     rewrite IHf1; auto.
     simpl in H.
     simpl.
     rewrite IHf.
     reflexivity.
-    apply le_trans with (S (depth f)).
+    apply Nat.le_trans with (S (depth f)).
     auto.
     assumption.
     induction t.
@@ -1477,11 +1466,11 @@ Section constants_in_formulas.
     rewrite IHt.
     reflexivity.
     simpl in H.
-    apply le_trans with (S (depth_term t)).
+    apply Nat.le_trans with (S (depth_term t)).
     auto.
     assumption.
   Qed.
-  
+
   Theorem c_appears_thm : forall f, c_appears f (added (all f)) = false.
   Proof.
     intro f.
@@ -1515,26 +1504,6 @@ Section constants_in_formulas.
     auto.
   Qed.
 
-  Fixpoint added_cnsts (t:term) : bool :=
-    match t with
-      | (func f t') => added_cnsts t'
-      | (cnst c) => 
-        match c with
-          | (added k) => true
-          | (original k) => false
-        end
-      | (fvar x) => false
-      | (bvar x) => false
-    end.
-  
-  Fixpoint added_cnsts_f (f:formula) : bool :=
-    match f with
-      | (atom p t) => added_cnsts t
-      | (all g) => added_cnsts_f g
-      | (imp g h) => added_cnsts_f g || added_cnsts_f h
-      | bot => false
-    end.
-  
   Lemma added_cnsts_c_appears : forall t k,
     added_cnsts t = false -> c_appears_term t (added k) = false.
   Proof.
@@ -1568,12 +1537,19 @@ Section constants_in_formulas.
 End constants_in_formulas.
 
 (** This section provides that if there is a derivation Gamma |- A,
-   then there is a derivation Gamma{x/c} |- A{x/c}, where {x/c} is a
-   substitution of the constant c by the free variable x. This lemma
-   is needed in [henkin_equiconsistent].  
-*)
+    then there is a derivation Gamma{x/c} |- A{x/c}, where {x/c} is a
+    substitution of the constant c by the free variable x. This lemma
+    is needed in [henkin_equiconsistent].  *)
 Section vanDalen_thm283.
   (* Substituting a constant by a term *)
+  Fixpoint c2t_term (t:term)(c:constant)(x:term) {struct t} : term :=
+    match t with
+      | bvar i    => (bvar i)
+      | fvar x    => fvar x
+      | cnst k   => if (constant_dec k c) then x else (cnst k)
+      | func f t1 => func f (c2t_term t1 c x)
+    end.
+
   Fixpoint
     c2t (t:formula)(c:constant)(x:term)  {struct t} : formula :=
     match t with
@@ -1581,14 +1557,6 @@ Section vanDalen_thm283.
       | imp t1 t2 => imp (c2t t1 c x) (c2t t2 c x)
       | all t1    => all (c2t t1 c x)
       | atom p t1 => atom p (c2t_term t1 c x)
-    end
-  with
-    c2t_term (t:term)(c:constant)(x:term) {struct t} : term :=
-    match t with
-      | bvar i    => (bvar i)
-      | fvar x    => fvar x
-      | cnst k   => if (constant_dec k c) then x else (cnst k)
-      | func f t1 => func f (c2t_term t1 c x)
     end.
   
   (* c2t applied to a list *)
@@ -1654,7 +1622,7 @@ Section vanDalen_thm283.
   Proof.
     unfold open.
     generalize 0.
-    fix 2.
+    fix c2t_lem2 2.
     intros.
     destruct A.
     simpl.
@@ -1669,7 +1637,7 @@ Section vanDalen_thm283.
     rewrite c2t_idem; auto.
     rewrite c2t_idem; auto.
     simpl.
-    destruct (beq_nat n n0).
+    destruct (Nat.eqb n n0).
     assumption.
     simpl.
     reflexivity.
@@ -1696,7 +1664,7 @@ Section vanDalen_thm283.
     loclt s ->
     open_rec n (c2t_term t c s) (c2t A c s) = c2t (open_rec n t A) c s.
   Proof.
-    fix 2.
+    fix c2t_lem3 2.
     intros.
     destruct A.
     simpl.
@@ -1711,7 +1679,7 @@ Section vanDalen_thm283.
     rewrite c2t_lem3; auto.
     induction t0.
     simpl.
-    destruct (beq_nat n n0).
+    destruct (Nat.eqb n n0).
     reflexivity.
     simpl.
     reflexivity.
@@ -1753,16 +1721,16 @@ Section vanDalen_thm283.
     simpl.
     destruct (eq_nat_dec n n0).
     rewrite <- e.
-    rewrite <- beq_nat_refl.
+    rewrite Nat.eqb_refl.
     simpl.
     reflexivity.
-    destruct beq_nat.
+    destruct Nat.eqb.
     simpl; reflexivity.
     simpl.
-    assert (beq_nat n n0 = false).
+    assert (Nat.eqb n n0 = false).
     apply not_true_is_false.
     intro H.
-    apply beq_nat_true in H.
+    apply Nat.eqb_eq in H.
     congruence.
     rewrite H.
     reflexivity.
@@ -1804,7 +1772,7 @@ Section vanDalen_thm283.
     induction t0.
     
     simpl.
-    destruct beq_nat.
+    destruct Nat.eqb.
     simpl.
     reflexivity.
     simpl.
@@ -2011,7 +1979,7 @@ Section drinker.
     proof (all h::Delta) ex (h ==> all h).
   Proof.
     intros.
-    apply imp_elim with _.
+    eapply imp_elim.
     impi.
     apply ex_intro.
     assert (Hr:forall t, ((h==>all h)^^t)=((h^^t)==>all h)).
@@ -2048,9 +2016,8 @@ Section drinker.
     proof Delta (ex (h ==> all h)).
   Proof.
     intros.
-    apply imp_elim with _.
-    Focus 2.
-    apply (LEM Delta (all h)).
+    eapply imp_elim.
+    2 : apply (LEM Delta (all h)).
     apply disj_elim.
     apply lemma_HE2_1.
     assumption.
@@ -2086,187 +2053,48 @@ End drinker.
 (** A predicate for distinguishing Henkin axioms *)
 Definition HA := fun f:formula => 
   exists g:formula, f = ((g^^(cnst (added (all g)))) ==> all g)
-    /\ locl (all g).
+    /\ locl (all g) /\ added_cnsts_f g = false.
 
-(** We also need a technical lemma for removing duplicate henkin axioms
-   from a context *)
-Section removing_duplicate_henkin_axioms.
-    
-  Lemma rem_dup_lem1 : 
-    forall a b g h, g<>h -> a = ((g ^^ cnst (added (all g))) ==> all g) ->
-      b = ((h ^^ cnst (added (all h))) ==> all h) ->
-      depth h <= depth g -> 
-          c_appears b (added (all g)) = false.
-  Proof.
-    intros.
-    assert (c_appears h (added (all g)) = false).
-    apply bb'''.
-    simpl.
-    auto.
-    clear - H H1 H3.
-    rewrite H1.
-    simpl.
-    rewrite H3.
-    rewrite orb_false_r.
-    clear - H H3.
-    assert ((added (all h)) <> (added (all g))).
-    congruence.
-    clear H.
-    generalize dependent H0.
-    generalize ((added (all h))).
-    intros c Hc.
-    unfold open.
-    generalize 0.
-    induction h.
-    simpl in *.
-    reflexivity.
-    simpl in * |- .
-    apply orb_false_elim in H3.
-    destruct H3.
-    assert (IH1 := IHh1 H).
-    assert (IH2 := IHh2 H0).
-    simpl.
-    clear - IH1 IH2.
-    intro n.
-    rewrite IH1.
-    rewrite IH2.
-    auto.
-    simpl in *; unfold open in *.
-    intro n.
-    apply IHh.
-    assumption.
-    induction t.
-    Focus 2.
-    simpl in *.
-    reflexivity.
-    Focus 2.
-    simpl in *.
-    auto.
-    Focus 2.
-    simpl in *.
-    auto.
-    simpl in *.
-    intro m.
-    destruct beq_nat.
-    simpl.
-    destruct constant_dec.
-    congruence.
-    reflexivity.
-    simpl.
-    reflexivity.
-  Qed.
-  
+Module DepthOrder <: TotalLeBool.
+  Local Coercion is_true : bool >-> Sortclass.
+
+  Definition t := formula.
+
   (** an order of deeper-than for the indexes of the Henkin
-     constants of two Henkin axioms; for non-Henkin axioms, no
+     constants of Henkin axioms; for non-Henkin axioms, no
      behaviour is specified intentionally, but that's not a problem
      because we use this order only for comparing Henkin axioms *)
-  Definition hgt (a b:formula) : bool :=
-    match a with 
-      | (imp _ a') =>
-        match a' with
-          | (all a'') =>
-            match b with 
-              | (imp _ b') =>
-                match b' with
-                  | (all b'') => Compare_dec.leb (depth b'') (depth a'')
-                  | _ => false
-                end
-              | _ => false
-            end
-          | _ => false
-        end
-      | _ => false
-    end.
-  
-  Lemma rem_dup_HA : forall Gamma, included Gamma HA -> 
-    exists Gamma', incl Gamma Gamma' /\ incl Gamma' Gamma /\
-      forall a Delta, Suffix (a::Delta) Gamma' ->
-        forall g, a = ((g ^^ cnst (added (all g))) ==> all g) ->
-          c_appears_l Delta (added (all g)) = false.
+  (* (depth ((h ^^ cnst (added (all h))) ==> all h) <= depth (all g))%na *)
+
+  Definition leb (a b : formula) : bool := Nat.leb (depth b) (depth a).
+
+  Infix "<=?" := leb (at level 70, no associativity).
+
+  Theorem leb_total : forall a1 a2, a1 <=? a2 \/ a2 <=? a1.
   Proof.
     intros.
-    assert (H0 := nodup_correct hgt formula_dec Gamma).
-    assert (H1 := sort_correct hgt (nodup hgt formula_dec Gamma)).
-    set (Gamma' := sort hgt (nodup hgt formula_dec Gamma)) in *.
-    exists Gamma'.
-    destruct H0.
-    destruct H2.
-    destruct H1.
-    destruct H4.
-    intuition.
-    eauto using incl_tran.
-    eauto using incl_tran.
-    assert (H8:=H5 a Delta H6).
-    assert (H9:=Suffix_incl H6).
-    assert (H10:forall b, In b Delta -> a<>b).
-    apply Suffix_lem1 in H6.
-    destruct H6 as [l Hl].
-    assert (NoDup Gamma').
-    unfold Gamma'.
-    apply nodup_sort.
-    assumption.
-    rewrite <- Hl in H6.
-    apply NoDup_remove_2 in H6.
-    intros b Hb Heq.
-    rewrite <- Heq in Hb.
-    clear -H6 Hb.
-    assert (In a (l++Delta)).
-    apply in_or_app.
-    auto.
-    auto.
-    clear H5 H6.
-    induction Delta.
-    simpl.
-    reflexivity.
-    simpl.
-    rewrite IHDelta.
-    rewrite orb_false_r.
-    assert (HA a0).
-    apply H.
-    apply H2.
-    apply H4.
-    clear -H9.
-    red in H9.
-    auto using in_eq,in_cons.
-    destruct H5 as [h [Hh Hhclosed]].
-    apply rem_dup_lem1 with a h.
-    assert (a<>a0).
-    apply H10.
-    simpl.
-    auto.
-    rewrite Hh in H5.
-    rewrite H7 in H5.
-    clear -H5.
-    congruence.
-    assumption.
-    assumption.
-    assert (hgt a a0 = true).
-    apply H8.
-    simpl; auto.
-    rewrite Hh in H5.
-    rewrite H7 in H5.
-    clear -H5.
-    simpl in H5.
-    apply leb_complete.
-    assumption.
-    clear -H8.
-    intros.
-    apply H8.
-    simpl.
-    auto.
-    clear -H9.
-    unfold incl in *.
-    intros.
-    apply H9.
-    simpl in H |- *.
-    intuition.
-    clear -H10.
-    intros.
-    apply H10.
-    simpl.
-    auto.
+    unfold leb.
+    destruct (NatOrder.leb_total (depth a2) (depth a1)).
+    left; assumption.
+    right; assumption.
   Qed.
-End removing_duplicate_henkin_axioms.
+End DepthOrder.
+
+Module Import DepthSort := Sort DepthOrder.
+
+Section DepthOrder_lemmas.
+    Local Coercion is_true : bool >-> Sortclass.
+
+    Lemma leb_transitive : Transitive (fun x y => is_true (DepthOrder.leb x y)).
+    Proof.
+      unfold Transitive.
+      intros.
+      unfold DepthOrder.leb in *.
+      apply leb_complete in H, H0.
+      apply leb_correct.
+      eauto using Nat.le_trans.
+    Qed.
+End DepthOrder_lemmas.
 
 Module CBAproof_completion := filter_completion CBAproof.
 Export CBAproof_completion.
@@ -2277,7 +2105,7 @@ Section Completeness.
   Definition extension (T1 T2:formula_set) := forall f, T2 f -> T1 f.
 
   (** A classical theory is a set of formulas T closed under
-     derivation over a set of Axioms *)
+      derivation over a set of Axioms *)
   Definition theory (Axioms:formula_set)(T:formula_set) := 
     forall f:formula, 
       (T f <->
@@ -2285,10 +2113,12 @@ Section Completeness.
           (included Gamma Axioms /\ exists p:proof Gamma f, True)).
   
   (** A set of formulas is Henkin-complete if it contains a Henkin
-     axiom for any locally closed formula. *)
+      axiom for every possible locally closed formula in the language
+      (regardless whether the formula itself or its universal closure
+      is in T or not). *)
   Definition henkin_complete (T:formula_set) := 
     forall f:formula, 
-      locl (all f) ->
+      locl (all f) -> added_cnsts_f f = false ->
       T ((f^^(cnst (added (all f)))) ==> all f).
   
   (** Two sets of formulas being equiconsistent *)
@@ -2309,7 +2139,7 @@ Section Completeness.
   Open Scope type_scope.
 
   (** If T is a theory over an axiom set which contains no Henkin
-     constants, then (TH T) is equiconsistent with T. *)
+      constants, then (TH T) is equiconsistent with T. *)
   Lemma henkin_equiconsistent : forall A T:formula_set, noHC A -> theory A T ->
     (TH T A) bot -> T bot.
   Proof.
@@ -2325,121 +2155,121 @@ Section Completeness.
       proof Eta bot ->
       proof Delta bot
     ).
-    clear.
-    intros h Delta Eta closed_h Hc_Delta Hr p.
-    rewrite Hr in p.
-    clear Hr.
-    apply imp_intro in p.
-    assert (H : proof Delta (all (neg (h ==> all h)))).
-    apply all_intro with nil.
-    apply locl_henkin_neg; assumption.
-    intros x xL.
-    replace (neg ((h ^^ cnst (added (all h))) ==> all h)) 
-      with ((neg (h ==> all h)) ^^ cnst (added (all h))) in p.
-    assert (p' := thm283 x (all h) p).
-    rewrite c2tl_idem in p'; auto.
-    unfold open in p'.
-    rewrite <- c2t_lem3 in p'; auto.
-    rewrite c2t_term_idem in p'.
-    rewrite c2t_idem in p'.
-    assumption.
-    clear.
-    simpl.
-    rewrite c_appears_thm.
-    auto.
-    red; reflexivity.
-    transitivity (neg ((h ^^ cnst (added (all h))) ==> ((all h) ^^ cnst (added (all h))))).
-    reflexivity.
-    unfold locl in closed_h.
-    unfold open.
-    rewrite closed_h.
-    reflexivity.
-    assert (H0 : proof Delta ((neg (ex (h ==> all h))))).
-    apply imp_elim with _.
-    apply lemma_HE1.
-    apply locl_henkin; assumption.
-    assumption.
-    apply imp_elim with _.
-    apply H0.
-    clear H.
-    apply lemma_HE2.
-    assumption.
+    { clear.
+      intros h Delta Eta closed_h Hc_Delta Hr p.
+      rewrite Hr in p.
+      clear Hr.
+      apply imp_intro in p.
+      assert (H : proof Delta (all (neg (h ==> all h)))).
+      apply all_intro with nil.
+      apply locl_henkin_neg; assumption.
+      intros x xL.
+      replace (neg ((h ^^ cnst (added (all h))) ==> all h)) 
+        with ((neg (h ==> all h)) ^^ cnst (added (all h))) in p.
+      assert (p' := thm283 x (all h) p).
+      rewrite c2tl_idem in p'; auto.
+      unfold open in p'.
+      rewrite <- c2t_lem3 in p'; auto.
+      rewrite c2t_term_idem in p'.
+      rewrite c2t_idem in p'.
+      assumption.
+      clear.
+      simpl.
+      rewrite c_appears_thm.
+      auto.
+      red; reflexivity.
+      transitivity (neg ((h ^^ cnst (added (all h))) ==> ((all h) ^^ cnst (added (all h))))).
+      reflexivity.
+      unfold locl in closed_h.
+      unfold open.
+      rewrite closed_h.
+      reflexivity.
+      assert (H0 : proof Delta ((neg (ex (h ==> all h))))).
+      eapply imp_elim.
+      apply lemma_HE1.
+      apply locl_henkin; assumption.
+      assumption.
+      eapply imp_elim.
+      apply H0.
+      clear H.
+      apply lemma_HE2.
+      assumption. }
     (* end of proof of lemma1 *)
     assert (lemma3 : forall Eta, included Eta (AxH T A) ->
       exists E1, exists E2, incl Eta (E1++E2) /\
         included E1 HA /\ included E2 A).
-    clear.
-    intros.
-    induction Eta.
-    exists nil.
-    exists nil.
-    simpl.
-    unfold incl.
-    auto using nil_included.
-    assert (H1 : included Eta (AxH T A)).
-    clear -H.
-    unfold included in *.
-    intros.
-    auto using in_cons.
-    destruct (IHEta H1) as [E1 [E2 [H2 [H3 H4]]]].
-    assert (H5 : (AxH T A) a).
-    red in H.
-    apply H.
-    apply in_eq.
-    unfold AxH in H5.
-    destruct H5.
-    exists E1.
-    exists (a::E2).
-    intuition.
-    clear -H2.
-    red in H2 |- *.
-    intros.
-    simpl in H.
-    destruct H.
-    rewrite <- H.
-    clear.
-    induction E1.
-    simpl.
-    auto.
-    simpl.
-    auto.
-    assert (H3 := H2 _ H).
-    clear -H3.
-    induction E1.
-    simpl in *; auto.
-    simpl in *.
-    destruct H3; auto.
-    clear - H4 H0.
-    red.
-    intros.
-    simpl in H.
-    destruct H.
-    rewrite <- H.
-    assumption.
-    red in H4.
-    auto.
-    exists (a::E1).
-    exists E2.
-    intuition.
-    simpl.
-    clear H5.
-    red.
-    simpl.
-    intros.
-    intuition.
-    clear -H3 H0.
-    red.
-    red in H3.
-    intros.
-    simpl in H.
-    destruct H.
-    rewrite <- H.
-    assumption.
-    apply H3.
-    assumption.
+    { clear.
+      intros.
+      induction Eta.
+      exists nil.
+      exists nil.
+      simpl.
+      unfold incl.
+      auto using nil_included.
+      assert (H1 : included Eta (AxH T A)).
+      clear -H.
+      unfold included in *.
+      intros.
+      auto using in_cons.
+      destruct (IHEta H1) as [E1 [E2 [H2 [H3 H4]]]].
+      assert (H5 : (AxH T A) a).
+      red in H.
+      apply H.
+      apply in_eq.
+      unfold AxH in H5.
+      destruct H5.
+      exists E1.
+      exists (a::E2).
+      intuition.
+      clear -H2.
+      red in H2 |- *.
+      intros.
+      simpl in H.
+      destruct H.
+      rewrite <- H.
+      clear.
+      induction E1.
+      simpl.
+      auto.
+      simpl.
+      auto.
+      assert (H3 := H2 _ H).
+      clear -H3.
+      induction E1.
+      simpl in *; auto.
+      simpl in *.
+      destruct H3; auto.
+      clear - H4 H0.
+      red.
+      intros.
+      simpl in H.
+      destruct H.
+      rewrite <- H.
+      assumption.
+      red in H4.
+      auto.
+      exists (a::E1).
+      exists E2.
+      intuition.
+      simpl.
+      clear H5.
+      red.
+      simpl.
+      intros.
+      intuition.
+      clear -H3 H0.
+      red.
+      red in H3.
+      intros.
+      simpl in H.
+      destruct H.
+      rewrite <- H.
+      assumption.
+      apply H3.
+      assumption. }
     (* end of proof of lemma3 *)
     assert (lemma2 : forall Eta, included Eta (AxH T A) ->
-      proof Eta bot -> exists Delta, included Delta A * proof Delta bot).
+                                 proof Eta bot -> exists Delta, included Delta A * proof Delta bot).
     clear - lemma1 lemma3 HcleanA.
     intros.
     assert (H3 := lemma3 Eta H).
@@ -2447,80 +2277,166 @@ Section Completeness.
     destruct H3 as [E1 [E2 [HEta [HE1 HE2]]]].
     exists E2.
     intuition.
-    (* begin proof using rem_dup_HA *)
-    destruct (rem_dup_HA HE1) as [E1' HE1'].
-    destruct HE1' as [HE1E1' [HE1'E1 HE1']].
-    assert (proof (E1++E2) bot).
-    apply weaken_lem1 with Eta; auto.
-    assert (proof (E1'++E2) bot).
-    apply weaken_lem1 with (E1++E2); auto.
-    clear -HE1E1'.
-    unfold incl in *.
-    intros.
-    apply in_or_app.
-    apply in_app_or in H.
-    intuition.
-    clear -H1 HE1' lemma1 HE1'E1 HE1 HcleanA HE2.
-    induction E1'.
-    simpl in H1.
-    assumption.
-    
-    apply IHE1'.
-    clear -HE1'E1.
-    unfold incl in *.
-    intros.
-    apply HE1'E1.
-    apply in_cons.
-    assumption.
-    intros.
-    assert (Suffix (a0::Delta) (a::E1')).
-    constructor.
-    assumption.
-    assert (H3 := HE1' a0 Delta H2 g H0).
-    assumption.
-    rewrite <- app_comm_cons in H1.
-    assert (HA a).
-    clear -HE1 HE1'E1.
-    unfold included in HE1.
-    apply HE1.
-    red in HE1'E1.
-    apply HE1'E1.
-    simpl.
-    auto.
-    unfold HA in H.
-    destruct H as [g [Hg Hgclosed]].
-    apply lemma1 with g (a::(E1'++E2)).
-    assumption.
-    Focus 2.
-    rewrite Hg; reflexivity.
-    Focus 2.
-    assumption.
-
-    assert (H2 := HE1' a E1' (Suffix_refl _) g Hg).
-    clear - HcleanA H2 HE2.
-    unfold noHC in HcleanA.
-    (* znaci tuka uste ni treba hipotezata deka E2 ne sodrzi henkin konstanti *)
-    apply c_appears_l_app.
-    intuition.
-    clear - HE2 HcleanA.
-    induction E2.
-    simpl.
-    reflexivity.
-    simpl.
-    apply orb_false_intro.
-    apply added_cnsts_c_appears'.
-    unfold included in HE2.
-    simpl in *.
-    apply HcleanA.
-    apply HE2.
-    auto.
-    apply IHE2.
-    clear - HE2.
-    unfold included in *.
-    simpl in *.
-    intros.
-    auto.
-(* end proof using rem_dup_HA *)
+    {
+      generalize dependent Eta.
+      induction E1.
+      - intros.
+        simpl in *.
+        apply weaken_lem1 with Eta; auto.
+      - intros.
+        rewrite <- app_comm_cons in HEta.
+        assert (HA a).
+        { apply HE1.
+          left; reflexivity. }
+        assert (included E1 HA).
+        { intros x Hx.
+          apply HE1.
+          right; assumption. }
+        destruct (in_dec formula_dec a E1).
+        {
+          eapply IHE1.
+          assumption.
+          exact H0.
+          eapply incl_tran.
+          exact HEta.
+          unfold incl.
+          intros.
+          simpl in H2.
+          destruct H2.
+          - rewrite <- H2.
+            eapply in_or_app.
+            left; assumption.
+          - assumption.
+        }
+        {
+          unfold HA in H.
+          destruct H as [h [Hh1 [Hh2 Hh3]]].
+          eapply IHE1.
+          + clear - HE1.
+            intros x Hx.
+            apply HE1.
+            right; assumption.
+          + eapply (lemma1 h (E1++E2)).
+            * assumption.
+            * clear dependent Eta.
+              clear lemma1 IHE1.
+              apply c_appears_l_app.
+              split.
+              { induction E1.
+                simpl in *.
+                reflexivity.
+                simpl in *.
+                rewrite IHE1.
+                apply orb_false_intro; try reflexivity.
+                assert (HA a0).
+                apply HE1.
+                right; left; reflexivity.
+                destruct H as [g [Hg1 [Hg2 Hg3]]].
+                rewrite Hg1.
+                {
+                  clear - Hh1 n Hg1 Hg2 Hg3.
+                  assert (~ (a0 = a)); intuition.
+                  rewrite Hh1, Hg1 in H.
+                  clear H0 H1 Hh1 Hg1.
+                  assert (~ (g = h)).
+                  { clear - H.
+                    intro H1.
+                    rewrite H1 in H.
+                    auto.
+                  }
+                  clear H.
+                  simpl.
+                  apply orb_false_intro.
+                  2 : {
+                    apply added_cnsts_c_appears'.
+                    assumption.
+                  }
+                  {
+                    apply (added_cnsts_c_appears' g (all h)) in Hg3.
+                    assert ((added (all g)) <> (added (all h))).
+                    { intro H.
+                      injection H.
+                      assumption.
+                    }
+                    clear H0.
+                    remember (added (all h)) as ch.
+                    remember (added (all g)) as cg.
+                    clear Heqcg Heqch.
+                    clear Hg2.
+                    unfold open.
+                    generalize dependent 0.
+                    induction g.
+                    - simpl in *.
+                      reflexivity.
+                    - simpl in *.
+                      intro n.
+                      rewrite IHg1.
+                      rewrite IHg2.
+                      reflexivity.
+                      apply orb_false_elim in Hg3.
+                      apply Hg3.
+                      apply orb_false_elim in Hg3.
+                      apply Hg3.
+                    - simpl in *.
+                      intro n.
+                      apply IHg.
+                      assumption.
+                    - simpl in *.
+                      intro n.
+                      induction t.
+                      + simpl in *.
+                        destruct (n =? n0).
+                        * simpl in *.
+                          remember (constant_dec cg ch) as d.
+                          destruct d.
+                          congruence.
+                          reflexivity.
+                        * simpl in *.
+                          reflexivity.
+                      + simpl in *.
+                        reflexivity.
+                      + simpl in *.
+                        assumption.
+                      + simpl in *.
+                        auto.
+                  }
+                }
+                intros x Hx.
+                apply HE1.
+                destruct Hx.
+                rewrite H; left; reflexivity.
+                right; right; assumption.
+                intros x Hx.
+                apply H1.
+                right; assumption.
+                clear - n.
+                intuition.
+              }
+              {
+                clear - HcleanA HE2.
+                unfold noHC in HcleanA.
+                induction E2.
+                - simpl.
+                  reflexivity.
+                - simpl.
+                  rewrite IHE2.
+                  apply orb_false_intro; try reflexivity.
+                  apply added_cnsts_c_appears'.
+                  apply HcleanA.
+                  apply HE2.
+                  left; reflexivity.
+                  intros x Hx.
+                  apply HE2.
+                  right; assumption.
+              }
+            * reflexivity.
+            * eapply weaken_lem1.
+              rewrite <- Hh1.
+              exact HEta.
+              assumption.
+          + apply incl_refl.
+        }
+    }
     assert (H2 := lemma2 Gamma H p).
     clear lemma2.
     apply (proj2 (H1 bot)).
@@ -2583,7 +2499,7 @@ Section Completeness.
     right.
     unfold HA.
     exists f.
-    simpl in H0.
+    simpl in H1.
     intuition.
     assert (p : proof (((f ^^ cnst (added (all f))) ==> all f) :: nil)
       ((f ^^ cnst (added (all f))) ==> all f)).
@@ -2925,8 +2841,7 @@ Section Completeness.
       rewrite fold_left_meet_cons in H.
       assert (IH:=IHGamma (imp a f)).
       impe a.
-      Focus 2.
-      hypo.
+      2 : hypo.
       weak.
       apply IH.
       clear -H.
@@ -3229,7 +3144,7 @@ Section Completeness.
       rewrite <- H0 in *.
       auto.
       assert (le m n).
-      apply Lt.lt_le_weak; assumption.
+      apply Nat.lt_le_incl; assumption.
       assert (H1:=GAx_monotone H).
       exists n.
       intuition.
@@ -3281,7 +3196,7 @@ Section Completeness.
       assert (H6 := lemma8 (Z T1) f  ys H4).
       clear H4.
       destruct H6.
-      Focus 2.
+      2 : {
       set (z':=(remove id_B_dec f ys)) in *.
       set (z:=fold_left meet z' top) in *.
       assert ((meet f z) <= bott).
@@ -3295,7 +3210,7 @@ Section Completeness.
       apply lemma2; auto.
       unfold z'.
       apply lemma3; auto.
-      clear -H0 Ttheory H.
+      clear -H0 Ttheory H AxnoHC.
       assert (z <= neg f).
       destruct H0 as [[p1 _] [p2 _]].
       unfold leq.
@@ -3341,7 +3256,7 @@ Section Completeness.
       apply (upwards_closed (proj1 lem15)) with z; auto.
       unfold z.
       apply lemma4; auto.
-      apply (proj1 lem15).
+      apply (proj1 lem15). }
       idtac.
       assert (bott <= neg f).
       apply leq_bott;auto.
@@ -3450,7 +3365,7 @@ Section Completeness.
       intros.
       right.
       red.
-      simpl in H0.
+      simpl in H1.
       intuition.
       exists f.
       intuition.
@@ -3467,7 +3382,7 @@ Section Completeness.
 
     Lemma model_existence3 :
       (forall A, Z' (all A) -> (forall t:term, Z' (A^^t))) /\
-      (forall A, locl (all A) -> (forall t:term, loclt t -> Z' (A^^t)) -> Z' (all A)).
+      (forall A, locl (all A) -> added_cnsts_f A = false -> (forall t:term, loclt t -> Z' (A^^t)) -> Z' (all A)).
     Proof.
       assert (Z'imp := proj1 model_existence2).
       split.
@@ -3495,7 +3410,8 @@ Section Completeness.
       intros t Hct.
       apply (proj1 (Z'theory (A^^t))).
       auto.
-      apply H0.
+      assumption.
+      apply H1.
       red.
       simpl.
       auto.
@@ -3631,7 +3547,18 @@ Section Completeness.
     intuition.
     assumption.
   Qed.
+  (* Defined. *)
 
 End Completeness.
 
+Check completeness.
+(* Set Printing Depth 1000. *)
+(* Set Printing Width 1000. *)
+(* Print completeness. *)
+(* Print model_existence. *)
+(* Print henkin_equiconsistent. *)
+(* Set Printing All. *)
+(* Eval cbv beta delta iota zeta in completeness. *)
+
 End classical_completeness.
+
