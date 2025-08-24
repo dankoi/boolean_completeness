@@ -13,6 +13,8 @@ From Stdlib Require Import Setoid.
 From Stdlib Require Import Morphisms.
 From Stdlib Require Import PeanoNat.
 
+Require Extraction.
+
 Set Implicit Arguments.
 
 (** Definition of Countable Boolean Algebra (over a setoid) *)
@@ -54,10 +56,6 @@ Module Type CBA.
       that this [id_B] is definitional equality, it has nothing to do
       with the equality of the setoid. *)
   Axiom id_B_dec : forall x y : B, {x = y}+{x <> y}.
-  Axiom id_B_dec_right : forall (x y:B), x<>y ->
-    exists H:x<>y, id_B_dec x y = right (x=y) H.
-  Axiom id_B_dec_left : forall x:B, 
-    exists H:x=x, id_B_dec x x = left (x<>x) H.
 
 End CBA.
 
@@ -123,35 +121,36 @@ Module filter_completion (cba : CBA).
   Notation "x <= y" := (leq x y) : B_scope.
 
   (** When a subset F of B is a filter *)
-  Record Filter (F:B -> Prop) : Prop := {
-    nonempty : exists x:B, F x;
+  Record Filter (F:B -> Set) : Set := {
+    nonempty : {x:B & F x};
     upwards_closed : forall x y:B, F x -> leq x y -> F y;
     meet_closed : forall x y:B, F x -> F y -> F (meet x y)
   }.
 
   (** The closure of the subset X, [up X], is the least filter containing X.
-     
+
      Conjuction of finite (but arbitrary) lenght is represented by the
      List operation fold_left. *)
-  Definition up (X:B -> Prop) := fun z:B =>
-    exists n:nat, exists ys:list B, length ys = n /\ 
-      fold_left (fun (a:Prop)(b:B) => and a (X b)) ys True /\
-      leq (fold_left meet ys top) z.
+  Definition up (X:B -> Set) := fun z:B =>
+    {n:nat & {ys:list B & (length ys = n) *
+      (fold_left (fun (a:Set)(b:B) => prod a (X b)) ys unit *
+       leq (fold_left meet ys top) z)}}%type.
 
-  Definition union_singl (F:B -> Prop)(x:B) := fun b:B => F b \/ b=x.
+  Definition union_singl (F:B -> Set)(x:B) := fun b:B => (F b + {b=x})%type.
 
-  Definition inconsistent (F:B -> Prop) := F bott.
+  Definition inconsistent (F:B -> Set) := F bott.
 
-  Definition equiconsistent (F G:B -> Prop) := inconsistent F <-> inconsistent G.
+  Definition equiconsistent (F G:B -> Set) :=
+    ((inconsistent F -> inconsistent G) * (inconsistent G -> inconsistent F))%type.
 
-  Definition element_complete (F:B -> Prop)(x:B) := 
+  Definition element_complete (F:B -> Set)(x:B) := 
     equiconsistent F (up (union_singl F x)) -> F x.
 
   (** This notion of completeness of a filter is the key to having a
       constructive proof. This notion is constructivelly weaker than,
       but classically equivalent to, the more usual notion: either x
       in F, or ~x in F. *)
-  Definition complete (F:B -> Prop) := forall x:B, element_complete F x.
+  Definition complete (F:B -> Set) := forall x:B, element_complete F x.
 
   Lemma leq_refl : forall x:B, x <= x.
   Proof.
@@ -244,14 +243,14 @@ Module filter_completion (cba : CBA).
     apply IHbs.
   Qed.
 
-  Lemma fold_left_impl : forall (X:B -> Prop)(xs:list B)(Q P:Prop), (Q -> P) -> fold_left (fun (a : Prop) (b : B) => a /\ X b) xs Q -> fold_left (fun (a : Prop) (b : B) => a /\ X b) xs P.
+  Lemma fold_left_impl : forall (X:B -> Set)(xs:list B)(Q P:Set), (Q -> P) -> fold_left (fun (a : Set) (b : B) => (a * X b)%type) xs Q -> fold_left (fun (a : Set) (b : B) => (a * X b)%type) xs P.
   Proof.
     induction xs.
     simpl.
     auto.
     simpl.
     intros.
-    apply IHxs with (Q /\ X a); intuition.
+    apply IHxs with (Q * X a)%type; intuition.
   Qed.
 
   Lemma fold_left_app_lem : forall xs ys,
@@ -270,7 +269,7 @@ Module filter_completion (cba : CBA).
     reflexivity.
   Qed.
 
-  Lemma up_filter : forall X:B -> Prop, Filter (up X).
+  Lemma up_filter : forall X, Filter (up X).
   Proof.
     intro X.
     constructor.
@@ -304,13 +303,13 @@ Module filter_completion (cba : CBA).
     rewrite length_app.
     rewrite fold_left_app.
     intuition.
-    apply fold_left_impl with True; auto.
+    apply fold_left_impl with unit; auto.
 
     rewrite fold_left_app_lem.
     apply meet_leq_compat; assumption. 
   Qed.
 
-  Lemma filter_top : forall F:B -> Prop, Filter F -> F top.
+  Lemma filter_top : forall F, Filter F -> F top.
   Proof.
     intros.
     destruct (nonempty H) as [w Fw].
@@ -413,7 +412,7 @@ Module filter_completion (cba : CBA).
   Qed.
 
   Lemma lemma4 : forall xs F, Filter F ->
-    fold_left (fun (A : Prop) (b : B) => A /\ F b) xs True ->
+    fold_left (fun (A : Set) (b : B) => (A * F b)%type) xs unit ->
     F (fold_left meet xs top).
   Proof.
     intros.
@@ -432,7 +431,7 @@ Module filter_completion (cba : CBA).
       intuition.
       apply IHxs0.
       simpl in H0.
-      apply fold_left_impl with (((True /\ F a) /\ F a0)).
+      apply fold_left_impl with (((unit * F a) * F a0)%type).
       intuition.
       assumption.
       intro.
@@ -443,7 +442,7 @@ Module filter_completion (cba : CBA).
       assumption.
       assumption.
       apply IHxs.
-      apply fold_left_impl with ((True /\ F a)).
+      apply fold_left_impl with ((unit * F a)%type).
       intuition.
       assumption.
       unfold leq.
@@ -451,14 +450,14 @@ Module filter_completion (cba : CBA).
       rewrite meet_idem.
       reflexivity.
     apply IHxs.
-    apply fold_left_impl with ((True /\ F a)).
+    apply fold_left_impl with ((unit * F a)%type).
     intuition.
     assumption.
   Qed.
-
-  Lemma lemma61 : forall (f:B -> Prop)(l:list B)(basecase:Prop)(P:Prop),
-    fold_left (fun (R:Prop)(x:B) => R /\ (f x)) l (basecase /\ P) -> 
-    (fold_left (fun (R:Prop)(x:B) => R /\ (f x)) l basecase) /\ P.
+Open Scope type.
+  Lemma lemma61 : forall (f:B -> Set)(l:list B)(basecase:Set)(P:Set),
+    fold_left (fun (R:Set)(x:B) => R * (f x)) l (basecase * P) -> 
+    (fold_left (fun (R:Set)(x:B) => R * (f x)) l basecase) * P.
   Proof.
     induction l.
     simpl in *.
@@ -467,15 +466,15 @@ Module filter_completion (cba : CBA).
     clear -IHl.
     intros.
     apply IHl.
-    apply fold_left_impl with ((basecase /\ P) /\ f a).
+    apply fold_left_impl with ((basecase * P) * f a).
     intro.
     intuition.
     assumption.
   Qed.
 
-  Lemma lemma62 : forall (f:B -> Prop)(l:list B)(basecase:Prop)(P:Prop),
-    (fold_left (fun (R:Prop)(x:B) => R /\ (f x)) l basecase) /\ P ->
-    fold_left (fun (R:Prop)(x:B) => R /\ (f x)) l (basecase /\ P). 
+  Lemma lemma62 : forall (f:B -> Set)(l:list B)(basecase:Set)(P:Set),
+    (fold_left (fun (R:Set)(x:B) => R * (f x)) l basecase) * P ->
+    fold_left (fun (R:Set)(x:B) => R * (f x)) l (basecase * P). 
   Proof.
     induction l.
     simpl in *.
@@ -483,23 +482,25 @@ Module filter_completion (cba : CBA).
     simpl.
     clear -IHl.
     intros.
-    apply fold_left_impl with ((basecase /\ f a) /\ P).
+    apply fold_left_impl with ((basecase * f a) * P).
     intro.
     intuition.
     apply IHl.
     assumption.
   Qed.
 
-  Lemma lemma5 (X:B -> Prop)(ys:list B)(n:nat)
-    (H:fold_left (fun (P : Prop) (x : B) => P /\ (X x \/ 
-      (enum x = n /\ equiconsistent X (up (union_singl X x))))) ys True) :
-    fold_left (fun (P : Prop) (x : B) => P /\ X x) ys True \/
-    (exists x_n : B,
-      In x_n ys /\
-      n = enum x_n /\
-      fold_left (fun (P : Prop) (x : B) => P /\ X x) (remove id_B_dec x_n ys) True /\
-      equiconsistent X (up (union_singl X x_n))
-    ).
+(* Recursive Extraction lemma4. *)
+
+  Lemma lemma5 (X:B -> Set)(ys:list B)(n:nat)
+    (H:fold_left (fun (P : Set) (x : B) => P * (X x +
+      ((enum x = n) * equiconsistent X (up (union_singl X x))))) ys unit) :
+    fold_left (fun (P : Set) (x : B) => P * X x) ys unit +
+    {x_n : B &
+      In x_n ys *
+      ((n = enum x_n) *
+      (fold_left (fun (P : Set) (x : B) => P * X x) (remove id_B_dec x_n ys) unit *
+      equiconsistent X (up (union_singl X x_n))))
+    }.
   Proof.
     generalize dependent H.
     generalize dependent n.
@@ -538,21 +539,21 @@ Module filter_completion (cba : CBA).
     symmetry.
     intuition.
     split; auto.
-    assert (Hr := id_B_dec_left a).
-    destruct Hr as [Hr1 Hr2].
-    rewrite Hr2.
+    {
+      remember (id_B_dec a a) as s.
+      destruct s.
       clear -H.
       induction ys.
       simpl in *.
-      auto.
-      simpl in H.
+      assumption.
+      simpl in *.
       assert (H' := lemma61 _ _ _ _ H).
       destruct H' as [H'' Xa0].
       assert (IH := IHys H'').
       clear - Xa0 IH.
-(* now if a=a0 then (remove id_B_dec a (a0 :: ys))=(remove id_B_dec a ys) QED *)
-(* and if a<>a0 then (remove id_B_dec a (a0 :: ys))=a0::(remove id_B_dec a ys) *)
-(* QED by Xa0 and IH and lemma62 *)
+      (* now if a=a0 then (remove id_B_dec a (a0 :: ys))=(remove id_B_dec a ys) QED *)
+      (* and if a<>a0 then (remove id_B_dec a (a0 :: ys))=a0::(remove id_B_dec a ys) *)
+      (* QED by Xa0 and IH and lemma62 *)
       simpl remove.
       case (id_B_dec a a0).
       auto.
@@ -560,7 +561,9 @@ Module filter_completion (cba : CBA).
       simpl.
       apply lemma62.
       intuition.
-      intuition.
+      congruence.
+    }
+    intuition.
     (* case 2 *)
     intro H.
     clear H5.
@@ -579,18 +582,20 @@ Module filter_completion (cba : CBA).
     case Hdec.
     intro Hr.
     rewrite <- Hr.
-    assert (Hleft := id_B_dec_left xn).
-    destruct Hleft as [Hleft1 Hleft2].
-    rewrite Hleft2.
-    assumption.
-    intro Hineq.
-    assert (Hright := id_B_dec_right Hineq).
-    destruct Hright as [Hright1 Hright2].
-    rewrite Hright2.
-    simpl.
-    apply lemma62.
-    split; auto.
-    (* subcase a = x_n *)
+    {
+      remember (id_B_dec xn xn) as s.
+      destruct s.
+      assumption.
+      congruence.
+    }
+    {
+      intro Hineq.
+      remember (id_B_dec xn a) as s.
+      destruct s.
+      congruence.
+      apply lemma62.
+      intuition.
+    }
     intro HH.
     destruct HH as [Henum H5].
     right.
@@ -599,16 +604,17 @@ Module filter_completion (cba : CBA).
     left; reflexivity.
     split.
     symmetry; intuition.
-    assert (Hleft := id_B_dec_left a).
-    destruct Hleft as [Hleft1 Hleft2].
-    rewrite Hleft2.
+    remember (id_B_dec a a) as s.
+    destruct s.
+
     assert (a=xn).
     apply countable.
     rewrite Henum.
     rewrite <- H2.
     reflexivity.
     rewrite H.
-    intuition.    
+    intuition.
+    congruence.
   Qed.
 
   Section completion.
@@ -616,21 +622,22 @@ Module filter_completion (cba : CBA).
   (** This is the heart of the argument, a fixpoint that, starting
       from a filter F, builds a complete filter extending F and
       equiconsistent to F. *)
-  Variable F:B -> Prop.
+  Variable F:B -> Set.
 
+  Open Scope type.
   Fixpoint F_ (n':nat) {struct n'} :=
     match n' with
-      | (S n) => 
+      | (S n) =>
         let Fn := F_ n in
-          let X := fun b:B => Fn b \/ 
-            (enum b=n /\ equiconsistent Fn (up (union_singl Fn b)))
+          let X := fun b:B => Fn b +
+            ((enum b=n) * equiconsistent Fn (up (union_singl Fn b)))
             in up X
       | O => F
     end.
   
-  Definition Z := fun b:B => exists n:nat, (F_ n) b.
+  Definition Z := fun b:B => {n:nat & (F_ n) b}.
 
-  Lemma lem223 : forall (X:B -> Prop) x, X x -> (up X) x.
+  Lemma lem223 : forall (X:B -> Set) x, X x -> (up X) x.
   Proof.
     intros.
     unfold up.
@@ -644,7 +651,62 @@ Module filter_completion (cba : CBA).
     reflexivity.
   Qed.
 
-  Lemma lem222 : forall n m, (n <= m)%nat -> forall x, (F_ n) x -> (F_ m) x.
+  (* [le] and [lt] in Set *)
+  Inductive le (n0 : nat) : nat -> Set :=
+    le_n : (le n0 n0)%nat | le_S : forall m : nat, (le n0 m)%nat -> (le n0 (S m))%nat.
+
+  Definition lt := (fun n m : nat => (le (S n) m))
+     : nat -> nat -> Set.
+
+  Lemma le_lt_dec : forall n m, le n m + lt m n.
+  Proof.
+  (* induction n in m |- *. *)
+  (* - left; auto with arith. *)
+  (* - destruct m. *)
+  (*   + right; auto with arith. *)
+  (*   + elim (IHn m); [left|right]; auto with arith. *)
+    induction n.
+    - left.
+      induction m.
+      + constructor.
+      + constructor.
+        assumption.
+    - destruct m.
+      + right.
+        { clear.
+          unfold lt.
+          induction n.
+          - constructor.
+          - constructor.
+            assumption. }
+      + destruct (IHn m).
+        * left.
+          { clear - l.
+            induction l.
+            - constructor.
+            - constructor.
+              assumption. }
+        * right.
+          { clear - l.
+            unfold lt in *.
+            induction l.
+            - constructor.
+            - constructor.
+              assumption. }
+  Qed.
+
+  Lemma lt_le_incl : forall n m : nat, (lt n m) -> (le n m).
+  Proof.
+    unfold lt.
+    intros.
+    induction H.
+    - constructor.
+      constructor.
+    - constructor.
+      assumption.
+  Qed.
+
+  Lemma lem222 : forall n m, (le n m)%nat -> forall x, (F_ n) x -> (F_ m) x.
   Proof.
     assert (lem2221 : forall k, forall x, (F_ k) x -> (F_ (S k)) x).
     intros.
@@ -658,9 +720,9 @@ Module filter_completion (cba : CBA).
     apply lem2221.
     assumption.
   Qed.
-    
+
   Theorem thm22 : Filter F ->
-    Filter Z /\ equiconsistent F Z /\ complete Z.
+    Filter Z * (equiconsistent F Z * complete Z).
   Proof.
     intros.
     assert (lem221 : forall n, Filter (F_ n)).
@@ -716,7 +778,7 @@ Module filter_completion (cba : CBA).
     apply (@meet_closed (F_ m)); auto.
     apply lem222 with n;auto.
     intro.
-    assert (l' := Nat.lt_le_incl _ _ l).
+    assert (l' := lt_le_incl l).
     exists n.
     apply (@meet_closed (F_ n)); auto.
     apply lem222 with m;auto.
@@ -737,13 +799,13 @@ Module filter_completion (cba : CBA).
     apply IH1.
     clear IH1 IH2.
     assert (CaseAnalysis : 
-      (fold_left (fun (a : Prop) (b : B) => a /\ F_ n b) ys True) \/
-      exists x_n, 
-        In x_n ys /\ 
-        n = enum x_n /\
-        (fold_left (fun (a : Prop) (b : B) => a /\ F_ n b) (remove id_B_dec x_n ys) True) /\
-        equiconsistent (F_ n) (up (union_singl (F_ n) x_n))
-    ).
+      (fold_left (fun (a : Set) (b : B) => a * F_ n b) ys unit) +
+      {x_n & 
+        In x_n ys * 
+        ((n = enum x_n) *
+        ((fold_left (fun (a : Set) (b : B) => a * F_ n b) (remove id_B_dec x_n ys) unit) *
+        equiconsistent (F_ n) (up (union_singl (F_ n) x_n))))
+           }).
     apply lemma5.
     assumption.
     case CaseAnalysis.
@@ -820,7 +882,7 @@ Module filter_completion (cba : CBA).
     destruct IHn.
     apply lem223.
     left.
-    apply H1.
+    apply i0.
     assumption.
     (* QED lem224 *)
     assert (lem225 : forall n m, equiconsistent (F_ n) (F_ m)).
@@ -839,7 +901,7 @@ Module filter_completion (cba : CBA).
     assumption.
     intro Zincon.
     destruct Zincon.
-    clear -H0 lem224.
+    clear -f lem224.
     firstorder.
     (* QED lem226 *)
 
@@ -848,15 +910,14 @@ Module filter_completion (cba : CBA).
     apply lem226.
 
     (* one more lemma needed for "Z is complete" *)
-    assert (subseteq_up_mono : forall (X Y:B -> Prop)(b:B), (forall z, X z -> Y z) -> up X b -> up Y b).
+    assert (subseteq_up_mono : forall (X Y:B -> Set)(b:B), (forall z, X z -> Y z) -> up X b -> up Y b).
     unfold up.
     intros.
     destruct H1 as [n [ys [H1 [H2]]]].
-(*     intro H3. *)
     exists n.
     exists ys.
     intuition.
-    clear H1 H3.
+    clear H1 l.
     induction ys.
     simpl in *; auto.
     simpl in H2 |- *.
@@ -905,16 +966,17 @@ Module filter_completion (cba : CBA).
     right.
     auto.
   Defined.
+
   End completion.
 
   (** Some additional lemmas that are needed by classcomp.v *)
   Section additional_lemmas.
     
-    Lemma lemma8 : forall (X:B -> Prop)(f:B)(ys:list B),
-      fold_left (fun (a : Prop) (b : B) => a /\ (union_singl X f) b) ys True ->
-      fold_left (fun (a : Prop) (b : B) => a /\ X b) ys True \/
-      fold_left (fun (a : Prop) (b : B) => a /\ X b) 
-      (remove id_B_dec f ys) True
+    Lemma lemma8 : forall (X:B -> Set)(f:B)(ys:list B),
+      fold_left (fun (a : Set) (b : B) => a * (union_singl X f) b) ys unit ->
+      fold_left (fun (a : Set) (b : B) => a * X b) ys unit +
+      fold_left (fun (a : Set) (b : B) => a * X b) 
+      (remove id_B_dec f ys) unit
       .
     Proof.
       fix lemma8 3.
@@ -924,7 +986,7 @@ Module filter_completion (cba : CBA).
       simpl.
       intro.
       apply lemma61 in H.
-      destruct H.
+      destruct H as [H H0].
       destruct (lemma8 _ _ _ H).
       destruct H0.
       left.
@@ -949,12 +1011,14 @@ Module filter_completion (cba : CBA).
       congruence. }
       idtac.
       idtac.
-      clear -H1.
+      (* clear -H1. *)
+      clear -f0.
       induction ys.
       simpl in *.
       auto.
       simpl in *.
-      apply lemma61 in H1.
+      (* apply lemma61 in H1. *)
+      apply lemma61 in f0.
       destruct (id_B_dec f a).
       intuition.
       simpl.
@@ -971,4 +1035,7 @@ Module filter_completion (cba : CBA).
 
   End additional_lemmas.
 
+  Extraction "filters" thm22.
+
 End filter_completion.
+

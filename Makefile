@@ -5,6 +5,7 @@ COQDOC=coqdoc
 all: main doc
 
 main:
+	$(COQC) ListSet.v
 	$(COQC) filters.v
 	$(COQC) classcomp.v
 

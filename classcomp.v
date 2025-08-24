@@ -1,11 +1,11 @@
-(** A constructive proof of completeness for classical first-order
+(** A constructive proof of completeness for classical first-ordereq_B
    logic, globally following the paper of Berardi and Valentini,
    itself unwinding Krivine's proof, itself unwinding the classical
    proof.
 
    Danko Ilik, October 2008, revisited August 2025 *)
 
-From Stdlib Require Export List.
+From Stdlib Require Import List.
 From Stdlib Require Import Setoid.
 From Stdlib Require Import Bool.
 From Stdlib Require Import Arith.
@@ -15,6 +15,9 @@ From Stdlib Require Import Orders.
 
 (** This imports the proof of the constructive Ultra-filter Theorem *)
 Require Import filters.
+Require Import ListSet.
+
+Require Extraction.
 
 Set Implicit Arguments.
 
@@ -91,10 +94,10 @@ Definition locl (f:formula) := forall n t, (open_rec n t f) = f.
 (** A term is locally-closed if it simply does not have bound
     variables, but let us define it analogously to locl. *)
 Definition loclt (t:term) := forall n t', (open_rec_term n t' t) = t.
-
+Locate In.
 Definition locll (Gamma:list formula) := forall B, In B Gamma -> locl B.
 
-Definition notin (x:nat) (L:list nat) := not (In x L).
+Definition notin (x:nat) (L:list nat) := In x L -> Empty_set.
 Notation "x \notin L" := (notin x L) (at level 69).
 
 (** Natural deduction system for classical predicate logic with
@@ -142,11 +145,11 @@ Fixpoint added_cnsts_f (f:formula) : bool :=
   end.
 
 (** A general set of formulas *)
-Definition formula_set := formula -> Prop.
+Definition formula_set := formula -> Set.
 
 (** Definition of a "minimal model", one without standard
     interpretation of absurdity *)
-Record model (M:formula_set) : Prop := {
+Record model (M:formula_set) : Set := {
 
   model_dneg : forall A, M (neg neg A ==> A);
   
@@ -165,11 +168,13 @@ Record model (M:formula_set) : Prop := {
     M (all A)
 }.
 
+Open Scope type.
+
 (** The definition of a "classical" as opposed to a "minimal" model is
    given, but not used. *)
-Definition model_bot_faithful (M:formula_set) := not (M bot).
-Definition classical_model (M:formula_set) : Prop :=
-  model M /\ model_bot_faithful M.
+Definition model_bot_faithful (M:formula_set) := (M bot) -> Empty_set.
+Definition classical_model (M:formula_set) :=
+  model M * model_bot_faithful M.
 
 (** A set of formulas interprets a sequent Gamma|-A if the inclusion
     of Gamma implies the membership of A *)
@@ -289,9 +294,8 @@ Section boolean_algebra.
 
   (* equality has to be in prop for practical reasons - defining a
      Coq-setoid *)
-  Definition eq_B (x y:B): Prop := 
-    (exists p:proof nil (x ==> y), True) 
-    /\ (exists p:proof nil (y ==> x), True).
+  Definition eq_B (x y:B): Prop :=
+    (proof nil (x ==> y)) /\ (proof nil (y ==> x)).
 
   Theorem eq_B_refl : reflexive B eq_B.
   Proof.
@@ -323,8 +327,8 @@ Section boolean_algebra.
     set (X:=x) in *.
     set (Y:=y) in *.
     set (Z:=z) in *.
-    destruct H as [[pXY _] [pYX _]].
-    destruct H0 as [[pYZ _] [pZY _]].
+    destruct H as [pXY pYX].
+    destruct H0 as [pYZ pZY].
     assert (pXZ:=proof_imp_trans pXY pYZ).
     assert (pZX:=proof_imp_trans pZY pYX).
     firstorder.
@@ -348,8 +352,8 @@ Section boolean_algebra.
     generalize dependent (y0).
     clear.
     intros W X Y H1 Z H2.
-    destruct H1 as [[pYX _] [pXY _]].
-    destruct H2 as [[pZW _] [pWZ _]].
+    destruct H1 as [pYX pXY].
+    destruct H2 as [pZW pWZ].
     split.
     assert (proof nil ((neg Y ==> Z) ==> (neg X ==> W))).
     apply proof_imp_trans with (neg Y ==> W).
@@ -378,7 +382,7 @@ Section boolean_algebra.
       assumption.
       apply hypo.
       simpl; auto.
-      exists H.
+      exact H.
       auto.
     (* completelly the same as the above proof *)
     assert (proof nil ((neg X ==> W) ==> (neg Y ==> Z))).
@@ -408,8 +412,7 @@ Section boolean_algebra.
       assumption.
       apply hypo.
       simpl; auto.
-      exists H.
-      auto.
+      exact H.
   Defined.
     
   Add Morphism meet with signature eq_B ==> eq_B ==> eq_B as meet_morphism. 
@@ -422,8 +425,8 @@ Section boolean_algebra.
     generalize dependent (y0).
     clear.
     intros W X Y H1 Z H2.
-    destruct H1 as [[pYX _] [pXY _]].
-    destruct H2 as [[pZW _] [pWZ _]].
+    destruct H1 as [pYX pXY].
+    destruct H2 as [pZW pWZ].
     split.
     assert (proof nil (neg (Y ==> neg Z) ==> neg (X ==> neg W))).
     impi.
@@ -439,7 +442,7 @@ Section boolean_algebra.
     impe Y.
     weak;weak;weak;assumption.
     hypo.
-    exists H; auto.
+    exact H.
     assert (proof nil (neg (X ==> neg W) ==> neg (Y ==> neg Z))).
     apply proof_imp_contrapos.
     impi.
@@ -449,42 +452,12 @@ Section boolean_algebra.
     hypo.
     contra.
     weak;assumption.
-    exists H; auto.
+    exact H.
   Defined.
 
   Lemma id_B_dec : forall x y : B, {x = y}+{x <> y}.
     intros.
     apply formula_dec.
-  Defined.
-
-  Lemma id_B_dec_right : forall (x y:B), x<>y -> 
-    exists H:x<>y, id_B_dec x y = right (x=y) H.
-  Proof.
-    intros.
-    unfold id_B_dec.
-    case (formula_dec x y).
-    (* case 1 *)
-    intros eqxy.
-    congruence.
-    (* case 2 *)
-    intro.
-    exists n.
-    reflexivity.
-  Defined.
-
-  Lemma id_B_dec_left : forall x:B, exists H:x=x, 
-    id_B_dec x x = left (x<>x) H.
-  Proof.
-    intros.
-    unfold id_B_dec.
-    case (formula_dec x x).
-    (* case 1 *)
-    intro.
-    exists e.
-    reflexivity.
-    (* case 2 *)
-    intros neqxy.
-    congruence.
   Defined.
 
   Lemma join_idem : forall x, join x x == x.
@@ -531,7 +504,7 @@ Section boolean_algebra.
     weak; hypo.
     impi.
     weak; hypo.
-    exists H; auto.
+    exact H.
     assert (proof nil (f ==> neg (f ==> neg f))).
     impi.
     impi.
@@ -540,7 +513,7 @@ Section boolean_algebra.
     hypo.
     weak; hypo.
     weak; hypo.
-    exists H; auto.
+    exact H.
   Defined.
 
   Lemma join_comm : forall x y, join x y == join y x.
@@ -563,7 +536,7 @@ Section boolean_algebra.
     impe (neg Y).
     weak; weak; hypo.
     hypo.
-    exists H; auto.
+    exact H.
     assert (proof nil ((neg X ==> Y) ==> (neg Y ==> X))).
     impi.
     impi.
@@ -574,7 +547,7 @@ Section boolean_algebra.
     impe (neg X).
     weak; weak; hypo.
     hypo.
-    exists H; auto.
+    exact H.
   Defined.
 
   Lemma meet_comm : forall x y, meet x y == meet y x.
@@ -599,7 +572,7 @@ Section boolean_algebra.
     weak; weak; hypo.
     hypo.
     weak; hypo.
-    exists H; auto.
+    exact H.
     assert (proof nil (neg (X ==> neg Y) ==> neg (Y ==> neg X))).
     impi; impi.
     impe (X ==> neg Y).
@@ -610,7 +583,7 @@ Section boolean_algebra.
     weak; weak; hypo.
     hypo.
     weak; hypo.
-    exists H; auto.
+    exact H.
   Defined.
 
   Lemma join_assoc : forall x y z, join x (join y z) == join (join x y) z.
@@ -643,7 +616,7 @@ Section boolean_algebra.
     weak; hypo.
     impi.
     weak; hypo.
-    exists H; auto.
+    exact H.
     assert (proof nil ((neg (neg Z ==> Y) ==> X) ==> (neg Z ==> (neg Y ==> X)))).
     impi;impi;impi.
     impe (neg (neg Z ==> Y)).
@@ -654,7 +627,7 @@ Section boolean_algebra.
     impe (neg Z).
     hypo.
     weak;weak;hypo.
-    exists H; auto.
+    exact H.
   Defined.
 
   Lemma meet_assoc : forall x y z, meet x (meet y z) == meet (meet x y) z.
@@ -687,7 +660,7 @@ Section boolean_algebra.
     hypo.
     weak;weak;weak;hypo.
     weak;hypo.
-    exists H; auto.
+    exact H.
     assert (
       proof nil
       (neg (neg (Z ==> neg Y) ==> neg X) ==>
@@ -709,7 +682,7 @@ Section boolean_algebra.
     hypo.
     weak;hypo.
     weak;weak;weak;hypo.
-    exists H; auto.
+    exact H.
   Defined.
 
   Lemma meet_absorb : forall x y, meet x (join x y) == x.
@@ -734,7 +707,7 @@ Section boolean_algebra.
     impe Y.
     weak; hypo.
     hypo.
-    exists H; auto.
+    exact H.
     assert (proof nil (Y ==> neg (Y ==> neg (neg Y ==> X)))).
     impi;impi.
     impe (neg Y ==> X).
@@ -746,7 +719,7 @@ Section boolean_algebra.
     impe Y.
     hypo.
     weak; weak; hypo.
-    exists H; auto.
+    exact H.
   Defined.
 
   Lemma join_absorb : forall x y, join x (meet x y) == x.
@@ -773,14 +746,14 @@ Section boolean_algebra.
     impe Y.
     weak; hypo.
     hypo.
-    exists H; auto.
+    exact H.
     assert (proof nil (Y ==> (neg Y ==> neg (Y ==> neg X)))).
     impi; impi.
     apply bot_elim.
     impe Y.
     hypo.
     weak; hypo.
-    exists H; auto.
+    exact H.
   Defined.
 
   Lemma join_distrib : forall x y z, join (meet x y) z == meet (join x z) (join y z).
@@ -821,7 +794,7 @@ Section boolean_algebra.
     hypo.
     impi.
     weak;weak;hypo.
-    exists H; auto.
+    exact H.
     assert (proof nil
               (neg ((neg Z ==> X) ==> neg (neg Y ==> X)) ==>
                (neg neg (Z ==> neg Y) ==> X))).
@@ -857,7 +830,7 @@ Section boolean_algebra.
     impe (neg Z).
     weak;weak;weak;hypo.
     hypo.
-    exists H; auto.
+    exact H.
   Defined.
 
   Lemma meet_bott : forall x, meet bot x == bot.
@@ -876,12 +849,12 @@ Section boolean_algebra.
    impi.
    impi.
    weak;hypo.
-   exists H;auto.
+   exact H.
    assert (proof nil (bot ==> neg (bot ==> neg X))).
    impi.
    impi.
    weak;hypo.
-   exists H;auto.
+   exact H.
   Defined.
 
   Lemma join_bott : forall x, join bot x == x.
@@ -899,12 +872,12 @@ Section boolean_algebra.
    hypo.
    impi.
    hypo.
-   exists H;auto.
+   exact H.
    assert (proof nil (X ==> (neg bot ==> X))).
    impi.
    impi.
    weak;hypo.
-   exists H;auto.
+   exact H.
   Defined.
 
   Lemma meet_top : forall x, meet top x == x.
@@ -924,7 +897,7 @@ Section boolean_algebra.
    weak;hypo.
    impi.
    weak; hypo.
-   exists H;auto.
+   exact H.
    assert (proof nil (X ==> neg (neg bot ==> neg X))).
    impi.
    impi.
@@ -937,7 +910,7 @@ Section boolean_algebra.
    weak;weak;hypo.
    impi.
    hypo.
-   exists H;auto.
+   exact H.
   Defined.
 
   Lemma join_top : forall x, join top x == top.
@@ -953,7 +926,7 @@ Section boolean_algebra.
    impi.
    impi.
    hypo.
-   exists H;auto.
+   exact H.
    assert (proof nil (neg bot ==> (neg neg bot ==> X))).
    impi.
    impi.
@@ -962,7 +935,7 @@ Section boolean_algebra.
    impe (neg bot).
    weak;hypo.
    weak;weak;hypo.
-   exists H;auto.
+   exact H.
   Defined.
 
   Lemma meet_compl : forall x, meet x (compl x) == bot.
@@ -983,12 +956,12 @@ Section boolean_algebra.
    impe X.
    hypo.
    weak;hypo.
-   exists H;auto.
+   exact H.
    assert (proof nil (bot ==> neg (X ==> neg neg X))).
    impi.
    impi.
    weak; hypo.
-   exists H;auto.
+   exact H.
   Defined.
 
   Lemma join_compl : forall x, join x (compl x) == top.
@@ -1004,12 +977,12 @@ Section boolean_algebra.
    impi.
    impi.
    hypo.
-   exists H;auto.
+   exact H.
    assert (proof nil (neg bot ==> (neg X ==> neg X))).
    impi.
    impi.
    hypo.
-   exists H;auto.
+   exact H.
   Defined.
 
   Lemma meet_distrib : forall x y z, meet (join x y) z == join (meet x z) (meet y z).
@@ -1245,37 +1218,8 @@ Definition B := formula.
 
 End CBAproof.
 
-(** Various lemmas that have to do with general lists or their
-   interaction with proofs *)
+(** List inclusion and provability *)
 Section list_proof_lemmas.
-  
-  (* a finite list of formulas is included in a set of formulas *)
-  Definition included (Gamma:list formula)(T:formula_set) := 
-    forall f, In f Gamma -> T f.
-
-  Lemma nil_included : forall Ax, included nil Ax.
-  Proof.
-    red.
-    simpl.
-    intros.
-    absurd (False); auto.
-  Qed.
-
-  Lemma nil_lem1 : forall l:list formula, incl nil l.
-  Proof.
-    red.
-    simpl.
-    intros.
-    absurd (False); auto.
-  Qed.
-
-  Lemma included_lem1 : forall l1 l2:list formula, forall Ax:formula_set,
-    included l1 Ax -> included l2 Ax -> included (l1++l2) Ax.
-  Proof.
-    unfold included.
-    intros.
-    destruct (in_app_or l1 l2 f H1); auto.
-  Qed.
 
   Lemma weaken_lem1 : forall Gamma Delta A, incl Gamma Delta ->
     proof Gamma A -> proof Delta A.
@@ -1826,7 +1770,7 @@ Section vanDalen_thm283.
     simpl in *.
     auto.
     simpl in *.
-    destruct H.
+    destruct H as [H|H].
     rewrite H.
     left; auto.
     right; auto.
@@ -2106,12 +2050,14 @@ Section Completeness.
 
   (** A classical theory is a set of formulas T closed under
       derivation over a set of Axioms *)
-  Definition theory (Axioms:formula_set)(T:formula_set) := 
-    forall f:formula, 
-      (T f <->
-        exists Gamma:list formula, 
-          (included Gamma Axioms /\ exists p:proof Gamma f, True)).
-  
+  Definition theory (Axioms:formula_set)(T:formula_set) :=
+    forall f:formula,
+      (T f ->
+       {Gamma:list formula &
+          included Gamma Axioms * {p:proof Gamma f & unit}}) *
+      ({Gamma:list formula &
+          included Gamma Axioms * {p:proof Gamma f & unit}} -> T f).
+
   (** A set of formulas is Henkin-complete if it contains a Henkin
       axiom for every possible locally closed formula in the language
       (regardless whether the formula itself or its universal closure
@@ -2122,15 +2068,15 @@ Section Completeness.
       T ((f^^(cnst (added (all f)))) ==> all f).
   
   (** Two sets of formulas being equiconsistent *)
-  Definition equicons (X Y:formula_set) := X bot <-> Y bot.
+  Definition equicons (X Y:formula_set) := (X bot -> Y bot) * (Y bot -> X bot).
 
   (** An axiom set is extended with Henkin axioms *)
-  Definition AxH (T A:formula_set) := fun f:formula => A f \/ HA f.
+  Definition AxH (T A:formula_set) := fun f:formula => A f + HA f.
 
   (** A theory that closes the extended axiom set under derivation *)
   Definition TH (T A:formula_set) := fun f:formula =>
-    exists Gamma:list formula,
-      included Gamma (AxH T A) /\ exists p:proof Gamma f, True.
+    {Gamma:list formula &
+      included Gamma (AxH T A) * {p:proof Gamma f & unit}}.
 
   (** When an axiom set contains no added constants *)
   Definition noHC (A:formula_set) := forall f, A f -> added_cnsts_f f = false.
@@ -2145,7 +2091,7 @@ Section Completeness.
   Proof.
     intros A T HcleanA H1 H2.
     destruct H2 as [Gamma H3].
-    destruct H3.
+    destruct H3 as [H H0].
     destruct H0 as [p _].
     (* We want to show that if Eta contains a henkin axiom, it can
        be eliminated from the proof. *)
@@ -2196,8 +2142,8 @@ Section Completeness.
       assumption. }
     (* end of proof of lemma1 *)
     assert (lemma3 : forall Eta, included Eta (AxH T A) ->
-      exists E1, exists E2, incl Eta (E1++E2) /\
-        included E1 HA /\ included E2 A).
+      {E1 & {E2 & incl Eta (E1++E2) *
+        (included E1 HA * included E2 A)}}).
     { clear.
       intros.
       induction Eta.
@@ -2225,7 +2171,7 @@ Section Completeness.
       red in H2 |- *.
       intros.
       simpl in H.
-      destruct H.
+      destruct H as [H|H].
       rewrite <- H.
       clear.
       induction E1.
@@ -2238,12 +2184,12 @@ Section Completeness.
       induction E1.
       simpl in *; auto.
       simpl in *.
-      destruct H3; auto.
-      clear - H4 H0.
+      destruct H3 as [H3|H3]; auto.
+      clear - H4 H0 a0.
       red.
       intros.
       simpl in H.
-      destruct H.
+      destruct H as [H|H].
       rewrite <- H.
       assumption.
       red in H4.
@@ -2252,24 +2198,22 @@ Section Completeness.
       exists E2.
       intuition.
       simpl.
-      clear H5.
       red.
       simpl.
       intros.
       intuition.
-      clear -H3 H0.
       red.
       red in H3.
       intros.
-      simpl in H.
-      destruct H.
-      rewrite <- H.
+      simpl in H5.
+      destruct H5 as [H5|H5].
+      rewrite <- H5.
       assumption.
       apply H3.
       assumption. }
     (* end of proof of lemma3 *)
     assert (lemma2 : forall Eta, included Eta (AxH T A) ->
-                                 proof Eta bot -> exists Delta, included Delta A * proof Delta bot).
+                                 proof Eta bot -> {Delta & included Delta A * proof Delta bot}).
     clear - lemma1 lemma3 HcleanA.
     intros.
     assert (H3 := lemma3 Eta H).
@@ -2302,7 +2246,7 @@ Section Completeness.
           unfold incl.
           intros.
           simpl in H2.
-          destruct H2.
+          destruct H2 as [H2|H2].
           - rewrite <- H2.
             eapply in_or_app.
             left; assumption.
@@ -2334,7 +2278,7 @@ Section Completeness.
                 destruct H as [g [Hg1 [Hg2 Hg3]]].
                 rewrite Hg1.
                 {
-                  clear - Hh1 n Hg1 Hg2 Hg3.
+                  clear - Hh1 e Hg1 Hg2 Hg3.
                   assert (~ (a0 = a)); intuition.
                   rewrite Hh1, Hg1 in H.
                   clear H0 H1 Hh1 Hg1.
@@ -2404,12 +2348,12 @@ Section Completeness.
                 intros x Hx.
                 apply HE1.
                 destruct Hx.
-                rewrite H; left; reflexivity.
+                rewrite e0; left; reflexivity.
                 right; right; assumption.
                 intros x Hx.
                 apply H1.
                 right; assumption.
-                clear - n.
+                clear - e.
                 intuition.
               }
               {
@@ -2439,7 +2383,7 @@ Section Completeness.
     }
     assert (H2 := lemma2 Gamma H p).
     clear lemma2.
-    apply (proj2 (H1 bot)).
+    apply (snd (H1 bot)).
     destruct H2 as [Delta [H2 H3]].
     exists Delta.
     intuition.
@@ -2447,12 +2391,13 @@ Section Completeness.
     constructor.
   Qed.
 
+
   (** If T is a theory whose axiom set has no Henkin constants, then
      (TH T) is a theory which is Henkin-complete and equiconsistent
      with T. *)
-  Theorem enrich : forall T A:formula_set, noHC A -> theory A T -> 
-    extension (AxH T A) A /\ extension (TH T A) T /\
-    theory (AxH T A) (TH T A) /\ henkin_complete (TH T A) /\ equicons (TH T A) T.
+  Theorem enrich : forall T A:formula_set, noHC A -> theory A T ->
+    extension (AxH T A) A * (extension (TH T A) T *
+    (theory (AxH T A) (TH T A) * (henkin_complete (TH T A) * equicons (TH T A) T))).
   Proof.
     intros T A AnoHC TAtheory.
     (* (TH T A) is an extension of T *)
@@ -2465,7 +2410,7 @@ Section Completeness.
     red.
     intros f Tf.
     unfold theory in TAtheory.
-    assert (H1 := proj1 (TAtheory f) Tf).
+    assert (H1 := fst (TAtheory f) Tf).
     destruct H1 as [Gamma HGamma].
     exists Gamma.
     destruct HGamma as [HG1 HG2].
@@ -2505,7 +2450,7 @@ Section Completeness.
       ((f ^^ cnst (added (all f))) ==> all f)).
     hypo.
     exists p.
-    auto.
+    constructor.
     (* (TH T A) and T are equiconsistent *)
     red.
     split; intros.
@@ -2525,7 +2470,7 @@ Section Completeness.
     (* a theory is nonempty, it contains top *)
     exists top.
     simpl.
-    assert (H := proj2 (HT (neg bot))).
+    assert (H := snd (HT (neg bot))).
     apply H.
     clear HT H.
     exists (@nil formula).
@@ -2537,22 +2482,23 @@ Section Completeness.
     simpl.
     auto.
     exists H; auto.
+    constructor.
     (* a theory is closed under the ordering induced by the boolean algebra *)
     intros.
     red in H0.
-    destruct H0.
+    destruct H0 as [H0 H1].
     clear H0.
-    destruct H1.
-    assert (H' := proj1 (HT (x)) H).
-    destruct H'.
-    destruct H1.
+    (* destruct H1. *)
+    rename H1 into H0.
+    assert (H' := fst (HT (x)) H).
+    destruct H' as [x1 [H1 H2]].
     destruct H2.
     generalize dependent (x).
     generalize dependent (y).
     clear -HT H1.
     intros Y X FX H2 H3.
     assert (HT' := HT Y).
-    assert (HT'' := proj2 HT').
+    assert (HT'' := snd HT').
     clear HT HT'.
     apply HT''.
     clear HT''.
@@ -2571,10 +2517,11 @@ Section Completeness.
     impi.
     weak;hypo.
     exists H;auto.
+    constructor.
     (* a theory is closed under finite meets *)
     intros.
-    assert (H1 := proj1 (HT (x)) H).
-    assert (H2 := proj1 (HT (y)) H0).
+    assert (H1 := fst (HT (x)) H).
+    assert (H2 := fst (HT (y)) H0).
     destruct H1.
     destruct H2.
     simpl.
@@ -2583,12 +2530,12 @@ Section Completeness.
     clear -HT.
     intros Y FY H1 X FX H2.
     assert (HT' := HT (neg (X ==> neg Y))).
-    assert (HT'' := proj2 HT').
+    assert (HT'' := snd HT').
     apply HT''.
     clear HT HT' HT''.
     exists (x0++x1).
     split.
-    firstorder using included_lem1 || (* 8.1 *) firstorder with included_lem1.
+    apply included_lem1; intuition.
     destruct H1 as [H21 H22].
     destruct H2 as [H51 H52].
     destruct H22 as [p1 _].
@@ -2610,6 +2557,7 @@ Section Completeness.
     apply incl_refl.
     assumption.
     exists H; auto.
+    constructor.
   Qed.
 
   (** A subsection which implements the model existence lemma by using
@@ -2618,9 +2566,9 @@ Section Completeness.
     Variables (T Ax:formula_set)(AxnoHC:noHC Ax)(Ttheory:theory Ax T).
 
     (** A Henkin extension of T *)
-    Definition T1 : formula -> Prop := TH T Ax.
-    Definition Ax1 : formula -> Prop := AxH T Ax.
-    Definition T1theory := (proj1 (proj2 (proj2 (enrich AxnoHC Ttheory)))).
+    Definition T1 : formula -> Set := TH T Ax.
+    Definition Ax1 : formula -> Set := AxH T Ax.
+    Definition T1theory := (fst (snd (snd (enrich AxnoHC Ttheory)))).
     Definition T1filter : Filter T1 := theory2filter T1theory.
 
     (** Extend T1 to a meta-dn filter using the Z defined in filters.v *)
@@ -2629,7 +2577,7 @@ Section Completeness.
     (** The properties of Z, proved in thm22 in filters.v *)
     Definition lem15 := thm22 T1filter.
     
-    Lemma model_existence1 : extension Z' T /\ equicons T Z'.
+    Lemma model_existence1 : extension Z' T * equicons T Z'.
     Proof.
       intros.
       assert (Hext : extension Z' T).
@@ -2641,31 +2589,33 @@ Section Completeness.
       unfold T1.
       simpl.
       unfold TH.
-      destruct (Ttheory f).
+      destruct (Ttheory f) as [H0 H1].
       clear H1.
-      destruct (H0 H).
+      destruct (H0 H) as [x H1].
       destruct H1.
       exists x.
       intuition.
-      clear -H1.
-      unfold AxH.
-      unfold included in *.
-      intros.
-      left.
-      auto.
+      {
+        clear -i.
+        unfold AxH.
+        unfold included in *.
+        intros.
+        left.
+        apply i; assumption.
+      }
       intuition.
       (* equiconsistency: *)
       red.
       set (HT1 := enrich AxnoHC Ttheory).
       destruct HT1.
-      destruct H0.
-      destruct H1.
-      destruct H2.
+      destruct p.
+      destruct p.
+      destruct p.
       assert (HZ:=lem15).
       destruct HZ.
-      destruct H5.
-      red in H5.
-      unfold inconsistent in H5.
+      destruct p.
+      red in e2.
+      unfold inconsistent in e2.
       intuition.
       apply (@henkin_equiconsistent Ax T).
       assumption.
@@ -2678,19 +2628,19 @@ Section Completeness.
     Definition G := F_ T1.
 
     (** The accompanying axioms *)
-    Fixpoint GAx (n':nat) : formula -> Prop :=
+    Fixpoint GAx (n':nat) : formula -> Set :=
       match n' with
         | O => Ax1
         | S n => 
           let Fn := F_ T1 n
             in fun f:formula => 
-                GAx n f \/ 
-                enum f = n /\
-                equiconsistent Fn (up (union_singl Fn f))
+                GAx n f + 
+                ((enum f = n) *
+                   equiconsistent Fn (up (union_singl Fn f)))
       end.
 
     (* The system of axioms for the complete filter Z *)
-    Definition ZAx := fun f:formula => exists n:nat, GAx n f.
+    Definition ZAx := fun f:formula => {n:nat & GAx n f}.
 
     Lemma GAx_monotone : forall n m:nat, le n m -> 
       forall f, GAx n f -> GAx m f.
@@ -2738,7 +2688,7 @@ Section Completeness.
       impi.
       impi.
       hypo.
-      exists p;constructor.
+      exact p.
       assert (p:proof nil (top ==> top&&f)).
       unfold meet.
       impi.
@@ -2748,7 +2698,7 @@ Section Completeness.
       hypo.
       weak;hypo.
       weak;weak;assumption.
-      exists p;constructor.
+      exact p.
       intros.
       apply imp_intro in H.
       assert (IH := IHGamma _ H).
@@ -2774,9 +2724,9 @@ Section Completeness.
       hypo.
       assert (p : proof nil (a && phi && f ==> a && phi)).
       apply H.
-      exists p.
-      constructor.
-      destruct IH as [[H1 _] [H2 _]].
+      exact p.
+      (* constructor. *)
+      destruct IH as [H1 H2].
       assert (proof nil (a && phi ==> a && phi && f)).
       assert (forall a b Delta, proof Delta (a ==> b) -> proof Delta (a ==> meet a b)).
       intros.
@@ -2815,8 +2765,7 @@ Section Completeness.
       impe a.
       hypo.
       weak;weak;weak;hypo.
-      exists H.
-      constructor.
+      exact H.
     Qed.
 
     Lemma fold_left_proof : forall Gamma f,
@@ -2827,7 +2776,7 @@ Section Completeness.
       simpl.
       intros f H.
       unfold leq,eq_B in H.
-      destruct H as [[p1 _] [p2 _]].
+      destruct H as [p1 p2].
       clear -p2.
       unfold meet in *.
       dneg.
@@ -2847,7 +2796,7 @@ Section Completeness.
       clear -H.
       set (phi := fold_left meet Gamma top) in *.
       unfold leq,eq_B in H |- *.
-      destruct H as [[p1 _] [p2 _]].
+      destruct H as [p1 p2].
       split.
       clear.
       assert (p:proof nil (phi && (a ==> f) ==> phi)).
@@ -2862,7 +2811,7 @@ Section Completeness.
       impe phi.
       weak;hypo.
       hypo.
-      exists p;constructor.
+      exact p.
       assert (p:proof nil (phi ==> phi && (a ==> f))).
       impi.
       impi.
@@ -2887,7 +2836,7 @@ Section Completeness.
       hypo.
       weak;hypo.
       weak;weak;weak;hypo.
-      exists p;constructor.
+      exact p.
     Qed.
 
     (** Every filter F_n is also a theory *)
@@ -2901,7 +2850,7 @@ Section Completeness.
       intros.
       assumption.
       intros.
-      assert (H2 := proj2 (T1theory f)).
+      assert (H2 := snd (T1theory f)).
       apply H2.
       clear H2.
       assumption.
@@ -2910,16 +2859,16 @@ Section Completeness.
       constructor.
 
       intro H.
-      assert (exists Gamma, 
-        included Gamma (GAx (S n)) /\ 
-        fold_left meet Gamma top <= f
+      assert ({Gamma &
+        (included Gamma (GAx (S n))) *
+        (fold_left meet Gamma top <= f)}
       ).
       simpl in H.
       destruct H as [m [ys [H1 [H2 H3]]]].
-      assert (forall y, In y ys -> exists zs, included zs (GAx (S n)) /\
-        fold_left meet zs top <= y).
+      assert (forall y, In y ys -> {zs & (included zs (GAx (S n))) *
+        (fold_left meet zs top <= y)}).
       intros y yys.
-      assert (G n y \/ GAx (S n) y).
+      assert (G n y + GAx (S n) y).
       assert (H4 := lemma5 _ _ _ H2).
       case H4.
       intro case1.
@@ -2967,7 +2916,7 @@ Section Completeness.
       (* *)
       case H.      
       intro case1.
-      assert (Hth := proj1 (IHn y) case1).
+      assert (Hth := fst (IHn y) case1).
       clear -Hth.
       simpl.
       destruct Hth as [Gamma [HGamma1 [HGamma2 _]]].
@@ -2982,7 +2931,7 @@ Section Completeness.
       unfold included.
       simpl In.
       intros yy Hr.
-      destruct Hr.
+      destruct Hr as [H0|H0].
       rewrite <- H0.
       assumption.
       contradiction.
@@ -2991,8 +2940,8 @@ Section Completeness.
       apply leq_refl.
       (* *)
       clear -H H3 IHn.
-      assert (exists Gamma : list formula,
-        included Gamma (GAx (S n)) /\ fold_left meet Gamma top <= fold_left meet ys top).
+      assert ({Gamma : list formula &
+        (included Gamma (GAx (S n))) * (fold_left meet Gamma top <= fold_left meet ys top)}).
       clear H3.
       generalize dependent ys.
       induction ys.
@@ -3006,15 +2955,15 @@ Section Completeness.
       apply leq_refl.
       intros.
       assert (H1 : forall y, In y ys ->
-        exists zs : list formula,
-          included zs (GAx (S n)) /\ fold_left meet zs top <= y).
+        {zs : list formula &
+          (included zs (GAx (S n))) * (fold_left meet zs top <= y)}).
       clear -H.
       simpl In in H.
       intros.
       intuition.
       assert (H2 : 
-        exists zs : list formula,
-          included zs (GAx (S n)) /\ fold_left meet zs top <= a).
+        {zs : list formula &
+          (included zs (GAx (S n))) * (fold_left meet zs top <= a)}).
       clear -H.
       simpl In in H.
       intros.
@@ -3070,19 +3019,20 @@ Section Completeness.
       destruct H01 with a.
       auto.
       left.
-      apply (proj2 (IHn a)).
+      apply (snd (IHn a)).
       exists (a::nil).
       split.
       red.
       simpl.
-      clear -H.
+      (* clear -H. *)
       intros.
       intuition.
-      rewrite <- H1.
+      rewrite <- a0.
       assumption.
       assert (p:proof (a::nil) a).
       hypo.
       exists p; auto.
+      constructor.
       right.
       assumption.
       (* now the first subcase *)
@@ -3095,7 +3045,7 @@ Section Completeness.
       intro H0.
       unfold Z' in H0.
       destruct H0 as [n Hn].
-      assert (H1 := proj1 (F_n_theory n f)).
+      assert (H1 := fst (F_n_theory n f)).
       unfold G in H1.
       assert (H3 := H1 Hn).
       clear -H3.
@@ -3115,14 +3065,14 @@ Section Completeness.
       unfold ZAx in H1.
       (* Gamma is a finite list, so there is a maximum n, such that 
          the entire list belongs to (GAx n) *)
-      assert (exists m:nat, included Gamma (GAx m)).
+      assert ({m:nat & included Gamma (GAx m)}).
       clear -H1.
       unfold included in *.
       induction Gamma.
       simpl in *.
       exists 0.
       intuition.
-      assert ((forall f : formula, In f Gamma -> exists n : nat, GAx n f)).
+      assert (forall f : formula, In f Gamma -> {n : nat & GAx n f}).
       clear -H1.
       simpl in *.
       intros.
@@ -3133,27 +3083,27 @@ Section Completeness.
       assert (H1' := H1 a).
       clear H1.
       simpl in *.
-      assert (exists n:nat, GAx n a).
+      assert ({n:nat & GAx n a}).
       intuition.
       clear H1'.
       destruct H as [n Hn].
-      destruct (Compare_dec.le_lt_dec n m).
+      destruct (le_lt_dec n m).
       assert (H1:=GAx_monotone l).
       exists m.
       intuition.
-      rewrite <- H0 in *.
+      rewrite <- a0 in *.
       auto.
       assert (le m n).
-      apply Nat.lt_le_incl; assumption.
+      apply lt_le_incl; assumption.
       assert (H1:=GAx_monotone H).
       exists n.
       intuition.
-      rewrite <- H2 in *.
+      rewrite <- a0 in *.
       auto.
       (*  *)
       destruct H as [m Hm].
       exists m.
-      assert (H3:=proj2 ((F_n_theory m) f)).
+      assert (H3:=snd ((F_n_theory m) f)).
       apply H3.
       exists Gamma.
       intuition.
@@ -3210,9 +3160,9 @@ Section Completeness.
       apply lemma2; auto.
       unfold z'.
       apply lemma3; auto.
-      clear -H0 Ttheory H AxnoHC.
+      (* clear -H0 Ttheory H AxnoHC. *)
       assert (z <= neg f).
-      destruct H0 as [[p1 _] [p2 _]].
+      destruct H as [p1 p2].
       unfold leq.
       unfold eq_B.
       unfold meet.
@@ -3228,7 +3178,7 @@ Section Completeness.
       impe z.
       weak;hypo.
       hypo.
-      exists H0; auto.
+      exact H.
       assert (proof nil (z ==> neg (z ==> neg neg f))).
       unfold meet in p2.
       impi.
@@ -3252,22 +3202,22 @@ Section Completeness.
       weak;weak;weak.
       impi.
       hypo.
-      exists H0;auto.
-      apply (upwards_closed (proj1 lem15)) with z; auto.
+      exact H.
+      apply (upwards_closed (fst lem15)) with z; auto.
       unfold z.
       apply lemma4; auto.
-      apply (proj1 lem15). }
+      apply (fst lem15). }
       idtac.
       assert (bott <= neg f).
       apply leq_bott;auto.
-      apply (upwards_closed (proj1 lem15)) with bott; auto.
-      apply (upwards_closed (proj1 lem15)) with (fold_left meet ys top); auto.
+      apply (upwards_closed (fst lem15)) with bott; auto.
+      apply (upwards_closed (fst lem15)) with (fold_left meet ys top); auto.
       apply lemma4; auto.
-      apply (proj1 lem15).
+      apply (fst lem15).
     Qed.
 
     Lemma model_existence2 : 
-      (forall A B : formula, Z' (A ==> B) -> Z' A -> Z' B) /\
+      (forall A B : formula, Z' (A ==> B) -> Z' A -> Z' B) *
       (forall A B : formula, (Z' A -> Z' B) -> Z' (A ==> B)).
     Proof.
     (* 
@@ -3283,9 +3233,9 @@ Section Completeness.
     *)
       assert (dir1: forall A B0 : formula, Z' (A ==> B0) -> Z' A -> Z' B0).
       intros.
-      apply (proj2 (Z'theory B0)).
-      assert (H1':= proj1 (Z'theory _) H).
-      assert (H2':= proj1 (Z'theory _) H0).
+      apply (snd (Z'theory B0)).
+      assert (H1':= fst (Z'theory _) H).
+      assert (H2':= fst (Z'theory _) H0).
       clear -H1' H2'.
       destruct H1' as [Gamma1 [H11 H12]].
       destruct H2' as [Gamma2 [H21 H22]].
@@ -3308,6 +3258,7 @@ Section Completeness.
       apply incl_refl.
       assumption.
       exists H; auto.
+      constructor.
       split.
       apply dir1.
       (* direction <= *)
@@ -3315,7 +3266,7 @@ Section Completeness.
       apply metaDNZ'.
       intro.
       apply dir1 with B0.
-      assert (H2':= proj1 (Z'theory _) H0).
+      assert (H2':= fst (Z'theory _) H0).
       destruct H2' as [Gamma2 [H21 H22]].
       destruct H22 as [p2 _].
       assert (proof Gamma2 (neg B0)).
@@ -3324,13 +3275,14 @@ Section Completeness.
       weak; assumption.
       impi.
       weak; hypo.
-      apply (proj2 (Z'theory (neg B0))).
+      apply (snd (Z'theory (neg B0))).
       exists Gamma2.
       split.
       assumption.
       exists H1; auto.
+      constructor.
       apply H.
-      assert (H2':= proj1 (Z'theory _) H0).
+      assert (H2':= fst (Z'theory _) H0).
       destruct H2' as [Gamma2 [H21 H22]].
       destruct H22 as [p2 _].
       assert (proof Gamma2 A).
@@ -3343,11 +3295,12 @@ Section Completeness.
       impe A.
       weak; hypo.
       hypo.
-      apply (proj2 (Z'theory A)).
+      apply (snd (Z'theory A)).
       exists Gamma2.
       split.
       assumption.
       exists H1; auto.
+      constructor.
     Qed.
 
     Lemma model_existence3' : henkin_complete Z'.
@@ -3374,6 +3327,7 @@ Section Completeness.
         ((f ^^ cnst (added (all f))) ==> all f)).
       hypo.
       exists p; auto.
+      constructor.
       unfold Z.
       exists 0.
       simpl.
@@ -3381,15 +3335,15 @@ Section Completeness.
     Qed.
 
     Lemma model_existence3 :
-      (forall A, Z' (all A) -> (forall t:term, Z' (A^^t))) /\
+      (forall A, Z' (all A) -> (forall t:term, Z' (A^^t))) *
       (forall A, locl (all A) -> added_cnsts_f A = false -> (forall t:term, loclt t -> Z' (A^^t)) -> Z' (all A)).
     Proof.
-      assert (Z'imp := proj1 model_existence2).
+      assert (Z'imp := fst model_existence2).
       split.
       (* first part: Z' is a filter and so a theory. QED by all_elim. *)
       intros.
-      apply (proj2 (Z'theory (A^^t))).
-      assert (H0' := proj1 (Z'theory _) H).
+      apply (snd (Z'theory (A^^t))).
+      assert (H0' := fst (Z'theory _) H).
       clear H.
       destruct H0' as [Gamma [H01 H02]].
       destruct H02 as [H02 _].
@@ -3399,16 +3353,17 @@ Section Completeness.
       exists Gamma.
       intuition.
       exists H; auto.
+      constructor.
       (* second part: use henkin completeness *)
       intros.
       apply Z'imp with (A ^^ cnst (added (all A))).
       apply model_existence3'.
       assumption.
       assert (H2 : forall t:term, loclt t -> 
-        exists Gamma : list formula,
-          included Gamma ZAx /\ exists H : proof Gamma (A^^t), True).
+        {Gamma : list formula &
+          (included Gamma ZAx) * {H : proof Gamma (A^^t) & unit}}).
       intros t Hct.
-      apply (proj1 (Z'theory (A^^t))).
+      apply (fst (Z'theory (A^^t))).
       auto.
       assumption.
       apply H1.
@@ -3417,13 +3372,13 @@ Section Completeness.
       auto.
     Qed.
 
-    Theorem model_existence : extension Z' T /\ model Z' /\ equicons T Z'.
+    Theorem model_existence : extension Z' T * (model Z' * equicons T Z').
     Proof.
       assert (H1 := model_existence1).
       intuition.
       constructor.
       intros.
-      apply (proj2 (Z'theory (neg neg A ==> A))).
+      apply (snd (Z'theory (neg neg A ==> A))).
       exists (@nil formula).
       split.
       apply nil_included.
@@ -3431,11 +3386,12 @@ Section Completeness.
       impi.
       dneg.
       hypo.
-      exists H1; auto.
-      apply (proj1 (model_existence2)).
-      apply (proj2 (model_existence2)).
-      apply (proj1 (model_existence3)).
-      apply (proj2 (model_existence3)).
+      exists H; auto.
+      constructor.
+      apply (fst (model_existence2)).
+      apply (snd (model_existence2)).
+      apply (fst (model_existence3)).
+      apply (snd (model_existence3)).
     Qed.
 
   End model_existence.
@@ -3456,7 +3412,7 @@ Section Completeness.
     apply orb_false_elim in H0.
     destruct H0.
     simpl in H.
-    destruct H.
+    destruct H as [H|H].
     rewrite <- H; assumption.
     auto.
   Qed.
@@ -3469,16 +3425,16 @@ Section Completeness.
     valid Gamma A -> proof Gamma A.
   Proof. 
     intros Gamma A Hno1 Hno2 H.
-    set (Ax := fun f:formula => In f Gamma \/ f = neg A).
+    set (Ax := fun f:formula => (In f Gamma) + (f = neg A)).
     set (T := fun f:formula =>
-      exists Delta:list formula,
-        included Delta Ax /\ exists p:proof Delta f, True).
+      {Delta:list formula &
+        (included Delta Ax) * {p:proof Delta f & unit}}).
     assert (noHCAx : noHC Ax).
       clear - Hno1 Hno2.
       unfold noHC,noHCl,noHCf in *.
       intros f H.
       unfold Ax in H.
-      destruct H.
+      destruct H as [H|H].
       eauto using HCl_correct.
       rewrite H.
       simpl.
@@ -3510,7 +3466,7 @@ Section Completeness.
         assert (proof ((neg A) :: nil) (neg A)).
         hypo.
         exists H0.
-        auto.
+        constructor.
       unfold M.
       intuition.
     red in H.
@@ -3528,7 +3484,7 @@ Section Completeness.
       assert (proof Gamma f).
       hypo.
       exists H1.
-      auto.
+      constructor.
       unfold M.
       intuition.
     red in Mequicons.
@@ -3559,6 +3515,11 @@ Check completeness.
 (* Print henkin_equiconsistent. *)
 (* Set Printing All. *)
 (* Eval cbv beta delta iota zeta in completeness. *)
+
+(* [proof] is in Prop, so not much info here: *)
+(* Recursive Extraction completeness. *)
+
+Extraction "classcomp" model_existence.
 
 End classical_completeness.
 
