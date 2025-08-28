@@ -108,6 +108,3 @@ Proof.
 Qed.
 Hint Immediate incl_appr : core.
 
-Lemma in_inv {A:Set} : forall (a b:A) (l:list A), In b (a :: l) -> (a = b) + In b l.
-Proof. easy. Qed.
-

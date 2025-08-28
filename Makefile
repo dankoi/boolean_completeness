@@ -5,15 +5,12 @@ COQDOC=coqdoc
 all: main doc
 
 main:
+	$(COQC) CRing_theory.v
 	$(COQC) ListSet.v
 	$(COQC) filters.v
-	$(COQC) classcomp.v
-
-doc:
-	$(COQDOC) -d doc -g --utf8 --toc --no-index *.v
 
 clean:
-	rm -f *.vo* *.glob doc/classcomp.html doc/filters.html doc/toc.html doc/coqdoc.css
+	rm *.vo* *.glob .*aux
 
 force_look:
 	true
