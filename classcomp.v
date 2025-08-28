@@ -6,15 +6,17 @@
    Danko Ilik, October 2008, revisited August 2025 *)
 
 From Stdlib Require Import List.
-From Stdlib Require Import Setoid.
 From Stdlib Require Import Bool.
 From Stdlib Require Import Arith.
 From Stdlib Require Import Cantor.
-From Stdlib Require Import Sorting.Mergesort.
 From Stdlib Require Import Orders.
+From Stdlib Require Import Setoid.
+From Stdlib Require Import CMorphisms.
 
 (** This imports the proof of the constructive Ultra-filter Theorem *)
 Require Import filters.
+
+(** List definitions that need to live in Set instead of Prop, for extraction *)
 Require Import ListSet.
 
 Require Extraction.
@@ -102,7 +104,7 @@ Notation "x \notin L" := (notin x L) (at level 69).
 
 (** Natural deduction system for classical predicate logic with
     cofinite quantification *)
-Inductive proof : list formula -> formula -> Prop :=
+Inductive proof : list formula -> formula -> Set :=
 | bot_elim  : forall Gamma, 
   proof Gamma bot -> forall A, proof Gamma A
 | imp_elim  : forall Gamma A B, 
@@ -292,12 +294,10 @@ Section boolean_algebra.
     exact (bot ==> bot).
   Defined.
 
-  (* equality has to be in prop for practical reasons - defining a
-     Coq-setoid *)
-  Definition eq_B (x y:B): Prop :=
-    (proof nil (x ==> y)) /\ (proof nil (y ==> x)).
+  Definition eq_B (x y:B): Set :=
+    (proof nil (x ==> y)) * (proof nil (y ==> x)).
 
-  Theorem eq_B_refl : reflexive B eq_B.
+  Theorem eq_B_refl : Reflexive eq_B.
   Proof.
     red.
     unfold eq_B.
@@ -311,7 +311,7 @@ Section boolean_algebra.
     firstorder.
   Defined.
 
-  Theorem eq_B_symm : symmetric B eq_B.
+  Theorem eq_B_symm : Symmetric eq_B.
   Proof.
     red.
     unfold eq_B.
@@ -319,7 +319,7 @@ Section boolean_algebra.
     firstorder.
   Defined.
 
-  Theorem eq_B_trans : transitive B eq_B.
+  Theorem eq_B_trans : Transitive eq_B.
   Proof.
     red.
     unfold eq_B.
@@ -336,13 +336,15 @@ Section boolean_algebra.
 
   Notation "x == y" := (eq_B x y) (at level 70, no associativity).
 
-  Add Relation B eq_B
-    reflexivity proved by eq_B_refl
-    symmetry proved by eq_B_symm
-    transitivity proved by eq_B_trans
-  as eq_B_relation.
+  Instance eq_B_relation : @Equivalence B eq_B.
+  Proof.
+    constructor.
+    exact eq_B_refl.
+    exact eq_B_symm.
+    exact eq_B_trans.
+  Qed.
 
-  Add Morphism join with signature eq_B ==> eq_B ==> eq_B as join_morphism. 
+  Instance join_morphism : Proper (eq_B ==> eq_B ==> eq_B) join.
   Proof.
     unfold eq_B; try red.
     intros x y H x0 y0 H0.
@@ -415,7 +417,7 @@ Section boolean_algebra.
       exact H.
   Defined.
     
-  Add Morphism meet with signature eq_B ==> eq_B ==> eq_B as meet_morphism. 
+  Instance meet_morphism : Proper (eq_B ==> eq_B ==> eq_B) meet.
   Proof.
     unfold eq_B.
     intros x y H x0 y0 H0.
@@ -1211,8 +1213,8 @@ Section Enumeration.
 
 End Enumeration.
 
-Definition eq_B_join_morph := join_morphism_Proper.
-Definition eq_B_meet_morph := meet_morphism_Proper.
+Definition eq_B_join_morph := join_morphism.
+Definition eq_B_meet_morph := meet_morphism.
 Definition bott := bot.
 Definition B := formula.
 
@@ -1770,7 +1772,7 @@ Section vanDalen_thm283.
     simpl in *.
     auto.
     simpl in *.
-    destruct H as [H|H].
+    destruct i as [H|H].
     rewrite H.
     left; auto.
     right; auto.
@@ -1996,49 +1998,8 @@ End drinker.
 
 (** A predicate for distinguishing Henkin axioms *)
 Definition HA := fun f:formula => 
-  exists g:formula, f = ((g^^(cnst (added (all g)))) ==> all g)
-    /\ locl (all g) /\ added_cnsts_f g = false.
-
-Module DepthOrder <: TotalLeBool.
-  Local Coercion is_true : bool >-> Sortclass.
-
-  Definition t := formula.
-
-  (** an order of deeper-than for the indexes of the Henkin
-     constants of Henkin axioms; for non-Henkin axioms, no
-     behaviour is specified intentionally, but that's not a problem
-     because we use this order only for comparing Henkin axioms *)
-  (* (depth ((h ^^ cnst (added (all h))) ==> all h) <= depth (all g))%na *)
-
-  Definition leb (a b : formula) : bool := Nat.leb (depth b) (depth a).
-
-  Infix "<=?" := leb (at level 70, no associativity).
-
-  Theorem leb_total : forall a1 a2, a1 <=? a2 \/ a2 <=? a1.
-  Proof.
-    intros.
-    unfold leb.
-    destruct (NatOrder.leb_total (depth a2) (depth a1)).
-    left; assumption.
-    right; assumption.
-  Qed.
-End DepthOrder.
-
-Module Import DepthSort := Sort DepthOrder.
-
-Section DepthOrder_lemmas.
-    Local Coercion is_true : bool >-> Sortclass.
-
-    Lemma leb_transitive : Transitive (fun x y => is_true (DepthOrder.leb x y)).
-    Proof.
-      unfold Transitive.
-      intros.
-      unfold DepthOrder.leb in *.
-      apply leb_complete in H, H0.
-      apply leb_correct.
-      eauto using Nat.le_trans.
-    Qed.
-End DepthOrder_lemmas.
+  {g:formula & (f = ((g^^(cnst (added (all g)))) ==> all g))
+    /\ ((locl (all g)) /\ (added_cnsts_f g = false))}.
 
 Module CBAproof_completion := filter_completion CBAproof.
 Export CBAproof_completion.
@@ -2703,8 +2664,9 @@ Section Completeness.
       apply imp_intro in H.
       assert (IH := IHGamma _ H).
       clear -IH.
-      rewrite fold_left_meet_cons.
-      set (phi := fold_left meet Gamma top) in *.
+      eapply leq_trans.
+      apply eq_B_leq.
+      apply fold_left_meet_cons.
       unfold leq in *.
       unfold eq_B in *.
       split.
@@ -2722,11 +2684,12 @@ Section Completeness.
       impe a.
       weak;hypo.
       hypo.
-      assert (p : proof nil (a && phi && f ==> a && phi)).
+      (* assert (p : proof nil (a && phi && f ==> a && phi)). *)
       apply H.
-      exact p.
+      (* exact p. *)
       (* constructor. *)
       destruct IH as [H1 H2].
+      set (phi := fold_left meet Gamma top).
       assert (proof nil (a && phi ==> a && phi && f)).
       assert (forall a b Delta, proof Delta (a ==> b) -> proof Delta (a ==> meet a b)).
       intros.
@@ -2787,7 +2750,14 @@ Section Completeness.
       impi; hypo.
       impi;weak;hypo.
       intros f H.
-      rewrite fold_left_meet_cons in H.
+      assert (H' : a && fold_left meet Gamma top <= f).
+      eapply leq_trans.
+      apply eq_B_leq.
+      apply eq_B_symm.
+      apply fold_left_meet_cons.
+      assumption.
+      clear H.
+      rename H' into H.
       assert (IH:=IHGamma (imp a f)).
       impe a.
       2 : hypo.
@@ -2936,8 +2906,8 @@ Section Completeness.
       assumption.
       contradiction.
       simpl.
-      rewrite meet_top.
-      apply leq_refl.
+      apply eq_B_leq.
+      apply meet_top.
       (* *)
       clear -H H3 IHn.
       assert ({Gamma : list formula &
@@ -2976,8 +2946,13 @@ Section Completeness.
       split.
       auto using included_lem1.
       clear -Hzs2 HG2.
-      rewrite fold_left_meet_cons.
-      rewrite fold_left_app_lem.
+      eapply leq_trans.
+      2 : { apply eq_B_leq.
+            apply eq_B_symm.
+            apply fold_left_meet_cons. }
+      eapply leq_trans.
+      apply eq_B_leq.
+      apply fold_left_app_lem.
       apply meet_leq_compat; assumption. 
       (* *)
       destruct H0 as [Gamma [HG1 HG2]].
@@ -3154,7 +3129,7 @@ Section Completeness.
       apply leq_trans with (fold_left meet (f::z') top); auto.
       apply eq_B_leq; auto.
       simpl.
-      symmetry.
+      apply eq_B_symm.
       unfold z.
       apply fold_left_meet_cons; auto.
       apply lemma2; auto.
@@ -3507,7 +3482,6 @@ Section Completeness.
 
 End Completeness.
 
-Check completeness.
 (* Set Printing Depth 1000. *)
 (* Set Printing Width 1000. *)
 (* Print completeness. *)
@@ -3519,7 +3493,7 @@ Check completeness.
 (* [proof] is in Prop, so not much info here: *)
 (* Recursive Extraction completeness. *)
 
-Extraction "classcomp" model_existence.
+Extraction "classcomp" completeness.
 
 End classical_completeness.
 

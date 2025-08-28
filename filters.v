@@ -6,12 +6,14 @@
    it can be used in other contexts, it is a standalone module.  It
    also includes an instantiation of the ring tactic with the
    semi-ring boolean algebra. *)
-From Stdlib Require Import Ring.
+(* From Stdlib Require Import Ring. *)
 From Stdlib Require Import List.
 From Stdlib Require Import Compare_dec.
 From Stdlib Require Import Setoid.
-From Stdlib Require Import Morphisms.
+From Stdlib Require Import CMorphisms.
 From Stdlib Require Import PeanoNat.
+
+Require Import ListSet.
 
 Require Extraction.
 
@@ -21,12 +23,12 @@ Set Implicit Arguments.
 Module Type CBA.
   Parameter Inline B:Set.
   Parameters (meet join:B -> B -> B)(bott top:B)(compl:B -> B).
-  Parameter eq_B : B  ->  B  ->  Prop.
+  Parameter eq_B : B  ->  B  ->  Set.
 
   Notation "x == y" := (eq_B x y) (at level 70, no associativity).
-  Axiom eq_B_refl  : reflexive B eq_B.
-  Axiom eq_B_symm  : symmetric B eq_B.
-  Axiom eq_B_trans : transitive B eq_B.
+  Axiom eq_B_refl  : Reflexive eq_B.
+  Axiom eq_B_symm  : Symmetric eq_B.
+  Axiom eq_B_trans : Transitive eq_B.
   Axiom eq_B_meet_morph : Proper (eq_B ==> eq_B ==> eq_B) meet.
   Axiom eq_B_join_morph : Proper (eq_B ==> eq_B ==> eq_B) join.
 
@@ -61,45 +63,55 @@ End CBA.
 
 Module filter_completion (cba : CBA).
   Export cba.
-  
-  Add Relation B eq_B
-    reflexivity proved by eq_B_refl
-    symmetry proved by eq_B_symm
-    transitivity proved by eq_B_trans
-  as eq_B_relation.
 
-  Add Morphism meet with signature eq_B ==> eq_B ==> eq_B as meet_morphism. 
+  Instance eq_B_relation : @Equivalence B eq_B.
+  Proof.
+    constructor.
+    exact eq_B_refl.
+    exact eq_B_symm.
+    exact eq_B_trans.
+  Qed.
+
+  Instance meet_morphism : Proper (eq_B ==> eq_B ==> eq_B) meet.
+  Proof.
     exact eq_B_meet_morph.
   Qed.
 
-  Add Morphism join with signature eq_B ==> eq_B ==> eq_B as join_morphism. 
+  Instance join_morphism : Proper (eq_B ==> eq_B ==> eq_B) join.
+  Proof.
     exact eq_B_join_morph.
   Qed.
 
   (** A boolean algebra is also a semi-ring, useful because Coq can
-      automatically solve equations in such cases. *)
-  Theorem CBA_semiring : semi_ring_theory bott top join meet eq_B.
-  Proof.
-    constructor.
-    apply join_bott.
-    apply join_comm.
-    apply join_assoc.
-    apply meet_top.
-    apply meet_bott.
-    apply meet_comm.
-    apply meet_assoc.
-    apply meet_distrib.
-  Qed.
+      automatically solve equations in such cases.
 
-  Add Ring B_semiring : CBA_semiring.
+      However, [Add Ring] does not work for equivalence relations not
+      in Prop, so we do not use it anymore. *)
+  (* Theorem CBA_semiring : semi_ring_theory bott top join meet eq_B. *)
+  (* Proof. *)
+  (*   constructor. *)
+  (*   apply join_bott. *)
+  (*   apply join_comm. *)
+  (*   apply join_assoc. *)
+  (*   apply meet_top. *)
+  (*   apply meet_bott. *)
+  (*   apply meet_comm. *)
+  (*   apply meet_assoc. *)
+  (*   apply meet_distrib. *)
+  (* Qed. *)
+
+  (* Add Ring B_semiring : CBA_semiring. *)
 
   (** Lattice as an algebra is equivalent to a lattice as a poset, so
       we can define an ordering. *)
   Definition leq := fun x y => meet x y == x.
 
-  Lemma leq' : forall x y, leq x y <-> join x y == y.
+  Definition ciff (A B:Set) : Set := (A -> B) * (B -> A).
+
+  Lemma leq' : forall x y, ciff (leq x y) (join x y == y).
   Proof.
     intros.
+    constructor.
     intuition.
     unfold leq in *.
     rewrite <- H .
@@ -107,6 +119,7 @@ Module filter_completion (cba : CBA).
     rewrite join_comm.
     apply join_absorb.
     unfold leq.
+    intro H.
     rewrite <- H .
     apply meet_absorb.
   Qed.
@@ -164,7 +177,9 @@ Module filter_completion (cba : CBA).
     unfold leq.
     intros.
     rewrite <- H.
-    ring [H0].
+    rewrite <- meet_assoc.
+    rewrite H0.
+    reflexivity.
   Qed.
 
   Lemma eq_B_leq : forall x y:B, x==y -> x <= y.
@@ -176,7 +191,8 @@ Module filter_completion (cba : CBA).
     apply meet_idem.
   Qed.
 
-  Add Morphism leq with signature eq_B ==> eq_B ==> iff as leq_morphism. 
+  Instance leq_morphism : Proper (eq_B ==> eq_B ==> ciff) leq.
+  (* Add Morphism leq with signature eq_B ==> eq_B ==> iff as leq_morphism. *)
   Proof.
     intros x y H x0 y0 H0.
     split.
@@ -204,7 +220,17 @@ Module filter_completion (cba : CBA).
   Proof.
     unfold leq.
     intros.
-    ring [H H0].
+    erewrite <- meet_assoc.
+    assert ((b && d) == (d && b)).
+    apply meet_comm.
+    assert ((c && (d && b)) == (b && c)).
+    rewrite meet_assoc.
+    rewrite H0.
+    apply meet_comm.
+    rewrite H1, H2.
+    rewrite meet_assoc.
+    rewrite H.
+    reflexivity.
   Qed.
 
   (** The next few lemmas with names "fold_left*" and "lemma*" are
@@ -222,7 +248,8 @@ Module filter_completion (cba : CBA).
     simpl.
     intros.
     apply IHbs.
-    ring [H].
+    rewrite H.
+    reflexivity.
   Qed.
 
   Lemma fold_left_meet_cons : forall bs b, fold_left meet (cons b bs) top == b && (fold_left meet bs top).
@@ -231,7 +258,7 @@ Module filter_completion (cba : CBA).
     induction bs.
     simpl.
     intro.
-    ring.
+    apply meet_comm.
     intro.
     simpl.
     rewrite IHbs.
@@ -260,7 +287,8 @@ Module filter_completion (cba : CBA).
     intros xs ys.
     induction xs.
     simpl.
-    ring.
+    rewrite meet_top.
+    reflexivity.
     rewrite <- app_comm_cons.
     rewrite fold_left_meet_cons.
     rewrite fold_left_meet_cons.
@@ -305,8 +333,10 @@ Module filter_completion (cba : CBA).
     intuition.
     apply fold_left_impl with unit; auto.
 
-    rewrite fold_left_app_lem.
-    apply meet_leq_compat; assumption. 
+    eapply leq_trans.
+    apply eq_B_leq.
+    apply fold_left_app_lem.
+    apply meet_leq_compat; assumption.
   Qed.
 
   Lemma filter_top : forall F, Filter F -> F top.
@@ -315,10 +345,12 @@ Module filter_completion (cba : CBA).
     destruct (nonempty H) as [w Fw].
     apply upwards_closed with w; auto.
     unfold leq.
-    ring.
+    rewrite meet_comm.
+    rewrite meet_top.
+    reflexivity.
   Qed.
 
-  Lemma lemma3 : forall (T:Type)(Hdec:forall x y : T, {x = y} + {x <> y})(x:T)(ys:list T),
+  Lemma lemma3 : forall (T:Set)(Hdec:forall x y : T, {x = y} + {x <> y})(x:T)(ys:list T),
     incl ys (x :: remove Hdec x ys).
   Proof.
     intros.
@@ -326,13 +358,11 @@ Module filter_completion (cba : CBA).
     simpl.
     unfold incl.
     intros.
-    absurd (In a nil).
-    apply in_nil.
-    assumption.
+    elim H.
     simpl.
     unfold incl in *.
     intros.
-    assert (H' := in_inv H).
+    assert (H' := in_inv _ _ _ H).
     case H'.
     intro Hr.
     rewrite <- Hr.
@@ -344,7 +374,7 @@ Module filter_completion (cba : CBA).
     apply in_cons.
     apply in_eq.
     intro.
-    assert (IH:=IHys _ H0).
+    assert (IH:=IHys _ i).
     case (Hdec x a).
     intro.
     assumption.
@@ -362,10 +392,15 @@ Module filter_completion (cba : CBA).
     simpl.
     intros.
     unfold leq.
-    ring.
+    rewrite meet_comm.
+    rewrite meet_top.
+    reflexivity.
 
     intros.
-    rewrite fold_left_meet_cons.
+    eapply leq_trans.
+    2 : { apply eq_B_leq.
+          symmetry.
+          apply fold_left_meet_cons. }
     assert (IHA' := IHA C).
 
     (* a is in C, so foldleft C = a && foldleft C, by one rewrite <- meet_idem *)
@@ -375,29 +410,45 @@ Module filter_completion (cba : CBA).
     assert (H' := H a (in_eq a A)).
       clear -H'.
       induction C.
-      absurd (In a nil); auto.
+      elim H'.
       simpl In in H'.
       case H'.
       intro Ha.
       rewrite Ha.
-      rewrite fold_left_meet_cons.
-      rewrite meet_assoc.
+      eapply leq_trans.
+      apply eq_B_leq.
+      apply fold_left_meet_cons.
+      eapply leq_trans with ((a && a) && fold_left meet C top).
+      apply eq_B_leq.
       rewrite meet_idem.
-      apply leq_refl.
-      intro Ca.
+      reflexivity.
+      apply eq_B_leq.
       rewrite fold_left_meet_cons.
       rewrite meet_assoc.
-      rewrite (meet_comm a a0).
-      rewrite <- meet_assoc.
+      reflexivity.
+      intro Ca.
+      eapply leq_trans.
+      apply eq_B_leq.
+      apply fold_left_meet_cons.
+      eapply leq_trans.
+      2 : { apply eq_B_leq.
+            rewrite fold_left_meet_cons.
+            rewrite meet_assoc.
+            rewrite (meet_comm a a0).
+            rewrite <- meet_assoc.
+            apply leq_refl. }
+      apply leq_trans with (a0 && (a && fold_left meet C top)).
       apply meet_leq_compat.
       apply leq_refl.
       auto.
+      apply eq_B_leq.
+      rewrite meet_idem.
+      reflexivity.
     apply meet_leq_compat.
     apply leq_refl.
     apply IHA'.
     apply incl_tran with (a::A).
-    apply incl_tl.
-    apply incl_refl.
+    right; assumption.
     assumption.
   Qed.
 
@@ -827,6 +878,8 @@ Open Scope type.
     apply lemma2.
     unfold Y.
     apply lemma3.
+
+    unfold leq in A0.
     rewrite fold_left_meet_cons in A0.
     assert (A1 : leq (fold_left meet Y top) (compl x_n)).
      set (y:=fold_left meet Y top) in *.
@@ -844,7 +897,8 @@ Open Scope type.
      symmetry in A0'.
      assert (H := leq' y (- x_n)).
      unfold leq in *.
-     intuition.
+     apply H.
+     assumption.
     assert (A2 : F_ n (fold_left meet Y top)).
     apply (@lemma4 Y (F_ n)).
     apply lem221.
@@ -1030,7 +1084,8 @@ Open Scope type.
     Proof.
       intro x.
       unfold leq.
-      ring.
+      rewrite meet_bott.
+      reflexivity.
     Qed.
 
   End additional_lemmas.
